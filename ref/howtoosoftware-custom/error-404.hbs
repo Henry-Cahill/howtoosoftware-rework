@@ -1,0 +1,174 @@
+{{!< default}}
+
+{{!--
+Custom 404 Page - Page Not Found
+With awesome GIFs to lighten the mood!
+--}}
+
+<style>
+    .error-page {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+    
+    .error-container {
+        max-width: 600px;
+    }
+    
+    .error-gif {
+        width: 100%;
+        max-width: 400px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+    
+    .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .error-btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        color: white;
+    }
+    
+    .error-btn-secondary {
+        background: var(--color-lightgrey);
+        color: var(--color-darkgrey);
+    }
+    
+    .error-btn-secondary:hover {
+        background: var(--color-midgrey);
+        color: white;
+    }
+    
+    .error-suggestion {
+        margin-top: 3rem;
+        padding-top: 2rem;
+        border-top: 1px solid var(--color-lightgrey);
+    }
+    
+    .error-suggestion h3 {
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--color-midgrey);
+        margin-bottom: 1rem;
+    }
+
+    /* Dark mode support */
+    [data-theme="dark"] .error-title {
+        color: var(--color-white);
+    }
+    
+    [data-theme="dark"] .error-btn-secondary {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--color-white);
+    }
+    
+    [data-theme="dark"] .error-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+</style>
+
+<section class="error-page outer">
+    <div class="error-container inner">
+        {{!-- Travolta confused GIF - perfect for "looking for something" --}}
+        <img 
+            src="https://media.giphy.com/media/hEc4k5pN17GZq/giphy.gif" 
+            alt="John Travolta looking confused" 
+            class="error-gif"
+            loading="lazy"
+        />
+        
+        <h1 class="error-code">404</h1>
+        <h2 class="error-title">Page Not Found</h2>
+        <p class="error-description">
+            Looks like this page pulled a disappearing act! 🎩✨<br>
+            Don't worry, even the best explorers get lost sometimes.
+        </p>
+        
+        <div class="error-actions">
+            <a href="{{@site.url}}" class="error-btn error-btn-primary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                Go Home
+            </a>
+            <a href="javascript:history.back()" class="error-btn error-btn-secondary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                Go Back
+            </a>
+        </div>
+        
+        <div class="error-suggestion">
+            <h3>Maybe try one of these?</h3>
+        </div>
+    </div>
+</section>
+
+{{!-- Show some recent posts as alternatives --}}
+<aside class="read-more-wrap outer">
+    <div class="read-more inner">
+        {{#get "posts" include="authors" limit="3" as |more_posts|}}
+            {{#if more_posts}}
+                {{#foreach more_posts}}
+                    {{> "post-card"}}
+                {{/foreach}}
+            {{/if}}
+        {{/get}}
+    </div>
+</aside>

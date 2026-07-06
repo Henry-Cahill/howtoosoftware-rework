@@ -1,0 +1,258 @@
+@page "/import-export"
+@using System.Security.Claims
+@using System.Text
+@using System.Text.Json
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IGhostImportExportService ImportExportService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>Import/Export — HowToSoftware Admin</PageTitle>
+
+<h1 class="mb-4">Import/Export</h1>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+        @statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+
+<!-- Export Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-box-arrow-up me-2"></i>Export</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted mb-3">
+            Export all posts, pages, tags, and authors as a Ghost-compatible JSON file.
+            This file can be imported into another Ghost instance or re-imported here.
+        </p>
+        <button class="btn btn-primary" @onclick="ExportAsync" disabled="@exporting">
+            @if (exporting)
+            {
+                <span class="spinner-border spinner-border-sm me-1"></span>
+            }
+            <i class="bi bi-download me-1"></i>Export content
+        </button>
+    </div>
+</div>
+
+<!-- Import Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-box-arrow-in-down me-2"></i>Import</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted mb-3">
+            Import content from a Ghost JSON export file. Tags and authors are matched by slug/email;
+            existing items are skipped. Posts are matched by slug — duplicates are skipped.
+        </p>
+
+        <div class="mb-3">
+            <label class="form-label">Ghost JSON file</label>
+            <InputFile OnChange="OnFileSelected" accept=".json" class="form-control" />
+            @if (selectedFileName is not null)
+            {
+                <div class="form-text">Selected: @selectedFileName (@FormatBytes(selectedFileSize))</div>
+            }
+        </div>
+
+        <button class="btn btn-warning" @onclick="ImportAsync" disabled="@(importing || fileContent is null)">
+            @if (importing)
+            {
+                <span class="spinner-border spinner-border-sm me-1"></span>
+            }
+            <i class="bi bi-upload me-1"></i>Import content
+        </button>
+    </div>
+</div>
+
+<!-- Import Results -->
+@if (importResult is not null)
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-clipboard-check me-2"></i>Import Results</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <div class="border rounded p-3 text-center">
+                        <div class="fs-3 fw-bold text-success">@importResult.PostsImported</div>
+                        <div class="text-muted small">Posts imported</div>
+                        @if (importResult.PostsSkipped > 0)
+                        {
+                            <div class="text-warning small">@importResult.PostsSkipped skipped</div>
+                        }
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded p-3 text-center">
+                        <div class="fs-3 fw-bold text-success">@importResult.TagsImported</div>
+                        <div class="text-muted small">Tags imported</div>
+                        @if (importResult.TagsSkipped > 0)
+                        {
+                            <div class="text-warning small">@importResult.TagsSkipped skipped</div>
+                        }
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded p-3 text-center">
+                        <div class="fs-3 fw-bold text-success">@importResult.UsersImported</div>
+                        <div class="text-muted small">Users imported</div>
+                        @if (importResult.UsersSkipped > 0)
+                        {
+                            <div class="text-warning small">@importResult.UsersSkipped skipped</div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (importResult.Errors.Count > 0)
+            {
+                <div class="alert alert-warning mb-0">
+                    <strong>@importResult.Errors.Count error(s):</strong>
+                    <ul class="mb-0 mt-1">
+                        @foreach (var err in importResult.Errors)
+                        {
+                            <li>@err</li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string? statusMessage;
+    private bool isError;
+    private bool exporting;
+    private bool importing;
+
+    // Import state
+    private string? selectedFileName;
+    private long selectedFileSize;
+    private string? fileContent;
+    private GhostImportResult? importResult;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private async Task ExportAsync()
+    {
+        exporting = true;
+        statusMessage = null;
+        try
+        {
+            var export = await ImportExportService.ExportAsync();
+            var json = JsonSerializer.Serialize(export, JsonOptions);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadJson", $"howtoosoftware-export-{DateTime.UtcNow:yyyyMMdd}.json", base64);
+
+            statusMessage = "Export complete.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Export failed: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            exporting = false;
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        importResult = null;
+        statusMessage = null;
+
+        var file = e.File;
+        if (file is null) return;
+
+        // 50 MB limit
+        const long maxSize = 50 * 1024 * 1024;
+        if (file.Size > maxSize)
+        {
+            statusMessage = "File is too large. Maximum size is 50 MB.";
+            isError = true;
+            fileContent = null;
+            return;
+        }
+
+        selectedFileName = file.Name;
+        selectedFileSize = file.Size;
+
+        using var stream = file.OpenReadStream(maxSize);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        fileContent = await reader.ReadToEndAsync();
+    }
+
+    private async Task ImportAsync()
+    {
+        if (fileContent is null) return;
+
+        importing = true;
+        statusMessage = null;
+        importResult = null;
+
+        try
+        {
+            var export = JsonSerializer.Deserialize<GhostExportRoot>(fileContent, JsonOptions);
+            if (export is null)
+            {
+                statusMessage = "Invalid JSON file — could not parse Ghost export format.";
+                isError = true;
+                return;
+            }
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? throw new InvalidOperationException("Cannot determine current user.");
+
+            importResult = await ImportExportService.ImportAsync(export, userId);
+
+            var total = importResult.PostsImported + importResult.TagsImported + importResult.UsersImported;
+            statusMessage = importResult.Errors.Count == 0
+                ? $"Import complete — {total} item(s) imported."
+                : $"Import finished with {importResult.Errors.Count} error(s). {total} item(s) imported.";
+            isError = importResult.Errors.Count > 0;
+        }
+        catch (JsonException)
+        {
+            statusMessage = "Invalid JSON file — not a valid Ghost export format.";
+            isError = true;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Import failed: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            importing = false;
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,283 @@
+@page "/tiers"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IStripeService StripeService
+@inject IJSRuntime JSRuntime
+@rendermode InteractiveServer
+
+<PageTitle>Tiers — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Tiers</h1>
+    <a href="tiers/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New tier</a>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") py-2 small d-flex align-items-center" role="alert">
+        <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-2"></i>
+        @statusMessage
+    </div>
+}
+
+@if (products is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (products.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-layers display-4 d-block mb-2"></i>
+            No tiers yet. Create one to enable paid subscriptions.
+        </div>
+    </div>
+}
+else
+{
+    @if (products.Count > 1)
+    {
+        <p class="text-muted small mb-2">
+            <i class="bi bi-grip-vertical me-1"></i>
+            Drag the handle on each tier card to reorder. This is the order tiers
+            appear on the public pricing page.
+        </p>
+    }
+    <div class="row g-3" id="tiers-sortable">
+        @foreach (var product in products)
+        {
+            <div class="col-md-6 col-xl-4" data-tier-id="@product.Id">
+                <div class="card h-100 @(product.Active ? "" : "opacity-50")">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                @if (products.Count > 1)
+                                {
+                                    <span class="text-muted" data-sortable-handle
+                                          style="cursor: grab;" title="Drag to reorder">
+                                        <i class="bi bi-grip-vertical"></i>
+                                    </span>
+                                }
+                                <h5 class="card-title mb-0">@product.Name</h5>
+                            </div>
+                            @if (!product.Active)
+                            {
+                                <span class="badge bg-secondary">Archived</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(product.Description))
+                        {
+                            <p class="text-muted small mb-2">@product.Description</p>
+                        }
+
+                        <div class="mb-2">
+                            @if (product.MonthlyPrice.HasValue)
+                            {
+                                <span class="me-3">
+                                    <strong>@FormatPrice(product.MonthlyPrice.Value, product.Currency)</strong>
+                                    <span class="text-muted small">/month</span>
+                                </span>
+                            }
+                            @if (product.YearlyPrice.HasValue)
+                            {
+                                <span>
+                                    <strong>@FormatPrice(product.YearlyPrice.Value, product.Currency)</strong>
+                                    <span class="text-muted small">/year</span>
+                                </span>
+                            }
+                        </div>
+
+                        @if (product.TrialDays > 0)
+                        {
+                            <div class="small text-muted mb-2">
+                                <i class="bi bi-clock me-1"></i>@product.TrialDays-day free trial
+                            </div>
+                        }
+
+                        <div class="small text-muted mb-2" title="Active subscribers (entitlement not expired)">
+                            <i class="bi bi-people me-1"></i>
+                            @{ var count = SubscriberCount(product.Id); }
+                            <strong class="text-body">@count.ToString("N0")</strong>
+                            @(count == 1 ? " subscriber" : " subscribers")
+                        </div>
+
+                        @if (product.ProductsBenefits.Count > 0)
+                        {
+                            <div class="small">
+                                @foreach (var pb in product.ProductsBenefits.OrderBy(b => b.SortOrder))
+                                {
+                                    <div><i class="bi bi-check-circle text-success me-1"></i>@pb.Benefit.Name</div>
+                                }
+                            </div>
+                        }
+
+                        <div class="mt-2 small text-muted">
+                            @{ var synced = product.StripeProducts.Count > 0; }
+                            @if (synced)
+                            {
+                                <i class="bi bi-check-circle text-success me-1"></i><span>Synced to Stripe</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-exclamation-circle text-warning me-1"></i><span>Not synced</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
+                        <a href="tiers/@product.Id/edit" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-pencil me-1"></i>Edit
+                        </a>
+                        <span class="text-muted small" title="Display order on the public pricing page">
+                            <i class="bi bi-list-ol me-1"></i>#@(product.SortOrder + 1)
+                        </span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Product>? products;
+    private Dictionary<string, int> subscriberCounts = [];
+    private string? statusMessage;
+    private bool isError;
+    private IJSObjectReference? jsModule;
+    private DotNetObjectReference<Tiers>? dotNetRef;
+    private bool sortableInitialised;
+
+    protected override async Task OnInitializedAsync()
+    {
+        products = await StripeService.GetProductsAsync();
+        await LoadSubscriberCountsAsync();
+    }
+
+    private async Task LoadSubscriberCountsAsync()
+    {
+        if (products is null || products.Count == 0)
+        {
+            subscriberCounts = [];
+            return;
+        }
+
+        try
+        {
+            var ids = products.Select(p => p.Id).ToList();
+            subscriberCounts = await StripeService.GetSubscriberCountsAsync(ids);
+        }
+        catch (Exception ex)
+        {
+            // Don't block the page if the count query fails — just show zeros.
+            subscriberCounts = [];
+            statusMessage = $"Could not load subscriber counts: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    private int SubscriberCount(string productId)
+        => subscriberCounts.TryGetValue(productId, out var n) ? n : 0;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (products is null || products.Count <= 1) return;
+
+        try
+        {
+            if (jsModule is null)
+            {
+                jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./js/tiers-sortable.js");
+                dotNetRef = DotNetObjectReference.Create(this);
+                await jsModule.InvokeVoidAsync("init", dotNetRef);
+                sortableInitialised = true;
+            }
+            else
+            {
+                // Re-bind after product list mutates (e.g. after reorder reload).
+                await jsModule.InvokeVoidAsync("initSortable");
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit closed during render — nothing to clean up.
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Could not initialise drag-drop: {ex.Message}";
+            isError = true;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTiersReordered(string[] orderedIds)
+    {
+        if (orderedIds is null || orderedIds.Length == 0 || products is null) return;
+
+        try
+        {
+            await StripeService.ReorderProductsAsync(orderedIds);
+
+            // Reload so SortOrder values + display numbers stay in sync.
+            products = await StripeService.GetProductsAsync();
+            await LoadSubscriberCountsAsync();
+            statusMessage = "Order saved";
+            isError = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Could not save order: {ex.Message}";
+            isError = true;
+            // Reload to revert UI back to the persisted order.
+            products = await StripeService.GetProductsAsync();
+            await LoadSubscriberCountsAsync();
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (jsModule is not null && sortableInitialised)
+            {
+                await jsModule.InvokeVoidAsync("destroy");
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { }
+
+        if (jsModule is not null)
+        {
+            try { await jsModule.DisposeAsync(); } catch { }
+        }
+
+        dotNetRef?.Dispose();
+    }
+
+    private static string FormatPrice(int amountInCents, string? currency)
+    {
+        var symbol = (currency?.ToUpperInvariant()) switch
+        {
+            "USD" or null => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            _ => currency?.ToUpperInvariant() + " ",
+        };
+        return $"{symbol}{amountInCents / 100m:F2}";
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

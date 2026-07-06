@@ -1,0 +1,15 @@
+/* ─── Editor Top Bar ────────────────────────────────────────── */
+.editor-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #313244;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.editor-topbar-actions {
+    margin-left: auto;
+}

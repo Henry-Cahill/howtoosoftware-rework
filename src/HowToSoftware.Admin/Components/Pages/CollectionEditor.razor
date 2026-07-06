@@ -1,0 +1,784 @@
+@page "/collections/new"
+@page "/collections/{CollectionId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ICollectionService CollectionService
+@inject IImageStorageService ImageStorage
+@inject IPostRepository PostRepository
+@inject ITagRepository TagRepository
+@inject IUserRepository UserRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Collection" : $"Edit — {title}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="collections" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Collections
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Collection</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@title</strong>? This will remove all post associations. This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Add Post Modal -->
+@if (showAddPost)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Post to Collection</h5>
+                    <button type="button" class="btn-close" @onclick="() => showAddPost = false"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control mb-3" placeholder="Search posts…"
+                           @bind="postSearch" @bind:event="oninput" @bind:after="SearchPostsAsync" />
+
+                    @if (availablePosts is not null && availablePosts.Count > 0)
+                    {
+                        <div class="list-group" style="max-height: 400px; overflow-y: auto;">
+                            @foreach (var post in availablePosts)
+                            {
+                                <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                                        @onclick="() => AddPostToCollectionAsync(post.Id)">
+                                    <div>
+                                        <strong>@post.Title</strong>
+                                        <div class="small text-muted">@post.Slug — @post.Status</div>
+                                    </div>
+                                    <i class="bi bi-plus-circle text-primary"></i>
+                                </button>
+                            }
+                        </div>
+                    }
+                    else if (availablePosts is not null)
+                    {
+                        <p class="text-muted text-center">No posts found.</p>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showAddPost = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- Type selector (new collections only) -->
+            @if (IsNew)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Collection type</h6></div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="card h-100 @(type == "manual" ? "border-primary" : "border-secondary") cursor-pointer"
+                                     style="cursor: pointer;" @onclick='() => type = "manual"'>
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-hand-index fs-2 @(type == "manual" ? "text-primary" : "text-muted") mb-2 d-block"></i>
+                                        <h6 class="mb-1">Manual</h6>
+                                        <p class="small text-muted mb-0">Hand-pick and order posts yourself</p>
+                                    </div>
+                                    @if (type == "manual")
+                                    {
+                                        <div class="card-footer bg-primary text-white text-center py-1 small">
+                                            <i class="bi bi-check-lg me-1"></i>Selected
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="card h-100 @(type == "automatic" ? "border-primary" : "border-secondary") cursor-pointer"
+                                     style="cursor: pointer;" @onclick='() => type = "automatic"'>
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-funnel fs-2 @(type == "automatic" ? "text-primary" : "text-muted") mb-2 d-block"></i>
+                                        <h6 class="mb-1">Automatic</h6>
+                                        <p class="small text-muted mb-0">Posts matched by filter rules</p>
+                                    </div>
+                                    @if (type == "automatic")
+                                    {
+                                        <div class="card-footer bg-primary text-white text-center py-1 small">
+                                            <i class="bi bi-check-lg me-1"></i>Selected
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Collection details</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" @bind="title" placeholder="Collection title" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Slug</label>
+                        <input type="text" class="form-control" @bind="slug" placeholder="auto-generated from title" />
+                        <div class="form-text">URL-friendly identifier. Leave blank to auto-generate.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="3" @bind="description" placeholder="Optional description"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cover image</label>
+                        @if (!string.IsNullOrEmpty(featureImage))
+                        {
+                            <div class="feature-image-preview">
+                                <img src="@featureImage" alt="Collection cover image" />
+                                <button class="btn btn-sm btn-danger feature-image-remove" @onclick="RemoveFeatureImage">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <div class="mt-2">
+                                <label class="feature-image-upload feature-image-upload-compact">
+                                    <InputFile OnChange="UploadFeatureImageAsync" accept="image/*" />
+                                    <i class="bi bi-arrow-repeat me-2"></i>Replace image
+                                </label>
+                            </div>
+                        }
+                        else
+                        {
+                            <label class="feature-image-upload">
+                                <InputFile OnChange="UploadFeatureImageAsync" accept="image/*" />
+                                <i class="bi bi-image me-2"></i>Add cover image
+                            </label>
+                        }
+                        <div class="form-text">Shown on the collections list for quick visual scanning.</div>
+                    </div>
+                </div>
+            </div>
+
+            @if (type == "automatic")
+            {
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter rules</h6>
+                        @if (!string.IsNullOrEmpty(filter))
+                        {
+                            <span class="badge bg-secondary font-monospace">@filter</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <p class="form-text mt-0 mb-3">Define which posts are automatically included. All conditions must match (AND logic).</p>
+                        <NqlFilterBuilder Filter="@filter" FilterChanged="OnFilterChanged"
+                                         Tags="allTags" Authors="allAuthors" />
+
+                        <div class="border rounded-3 p-3 mt-3 bg-body-tertiary">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <h6 class="mb-0">Live preview</h6>
+                                    <div class="small text-muted">Showing the first 10 matching posts for the current filter.</div>
+                                </div>
+                                @if (previewLoading)
+                                {
+                                    <span class="small text-muted">
+                                        <span class="spinner-border spinner-border-sm me-1"></span>Updating…
+                                    </span>
+                                }
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(previewError))
+                            {
+                                <div class="alert alert-danger py-2 px-3 mb-0">@previewError</div>
+                            }
+                            else if (string.IsNullOrWhiteSpace(filter))
+                            {
+                                <div class="text-muted small">Add at least one filter condition to preview matching posts.</div>
+                            }
+                            else if (!previewLoading && previewPosts.Count == 0)
+                            {
+                                <div class="text-muted small">No published posts match the current filter.</div>
+                            }
+                            else if (previewPosts.Count > 0)
+                            {
+                                <div class="list-group list-group-flush">
+                                    @foreach (var post in previewPosts)
+                                    {
+                                        <div class="list-group-item px-0 d-flex justify-content-between align-items-start bg-transparent">
+                                            <div>
+                                                <strong>@post.Title</strong>
+                                                <div class="small text-muted">@post.Slug</div>
+                                            </div>
+                                            <div class="small text-muted text-end ms-3">
+                                                <span class="badge text-bg-light border">@post.Status</span>
+                                                @if (post.PublishedAt.HasValue)
+                                                {
+                                                    <div class="mt-1">@post.PublishedAt.Value.ToString("yyyy-MM-dd")</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- Posts in this collection -->
+            @if (!IsNew)
+            {
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Posts (@collectionPosts.Count)</h6>
+                        @if (type == "manual")
+                        {
+                            <button class="btn btn-sm btn-outline-primary" @onclick="OpenAddPostModal">
+                                <i class="bi bi-plus-lg me-1"></i>Add post
+                            </button>
+                        }
+                    </div>
+                    <div class="card-body p-0">
+                        @if (collectionPosts.Count == 0)
+                        {
+                            <div class="text-center text-muted py-4">
+                                @if (type == "automatic")
+                                {
+                                    <span>No posts match the current filter.</span>
+                                }
+                                else
+                                {
+                                    <span>No posts added yet. Click "Add post" to get started.</span>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush" id="collection-posts-sortable">
+                                @for (int i = 0; i < collectionPosts.Count; i++)
+                                {
+                                    var post = collectionPosts[i];
+                                    var idx = i;
+                                    <div class="list-group-item d-flex justify-content-between align-items-center" data-post-id="@post.Id">
+                                        <div class="d-flex align-items-center flex-grow-1" style="min-width: 0;">
+                                            @if (type == "manual")
+                                            {
+                                                <div data-sortable-handle style="cursor: grab; padding-right: 10px; padding-left: 5px; flex-shrink: 0;">
+                                                    <i class="bi bi-grip-vertical text-muted"></i>
+                                                </div>
+                                            }
+                                            <div style="flex-grow: 1; min-width: 0;">
+                                                <strong>@post.Title</strong>
+                                                <div class="small text-muted">
+                                                    @post.Slug
+                                                    @if (post.PublishedAt.HasValue)
+                                                    {
+                                                        <span> — @post.PublishedAt.Value.ToString("yyyy-MM-dd")</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-1 flex-shrink-0" style="margin-left: 10px;">
+                                            @if (type == "manual")
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger"
+                                                        @onclick="() => RemovePostAsync(post.Id)" title="Remove">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && collection is not null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Info</h6></div>
+                    <div class="card-body small text-muted">
+                        <div class="mb-1"><strong>ID:</strong> @collection.Id</div>
+                        <div class="mb-1">
+                            <strong>Type:</strong>
+                            <span class="badge @(collection.Type == "automatic" ? "bg-info" : "bg-secondary") ms-1">
+                                <i class="bi @(collection.Type == "automatic" ? "bi-funnel" : "bi-hand-index") me-1"></i>@collection.Type
+                            </span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(collection.Filter))
+                        {
+                            <div class="mb-1"><strong>Filter:</strong> <code>@collection.Filter</code></div>
+                        }
+                        <div class="mb-1"><strong>Posts:</strong> @collectionPosts.Count</div>
+                        <div class="mb-1"><strong>Created:</strong> @collection.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                        @if (collection.UpdatedAt.HasValue)
+                        {
+                            <div><strong>Updated:</strong> @collection.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (IsNew)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Summary</h6></div>
+                    <div class="card-body small text-muted">
+                        <div class="mb-1">
+                            <strong>Type:</strong>
+                            <span class="badge @(type == "automatic" ? "bg-info" : "bg-secondary") ms-1">
+                                <i class="bi @(type == "automatic" ? "bi-funnel" : "bi-hand-index") me-1"></i>@type
+                            </span>
+                        </div>
+                        @if (type == "automatic" && !string.IsNullOrEmpty(filter))
+                        {
+                            <div class="mb-1"><strong>Filter:</strong> <code>@filter</code></div>
+                        }
+                        else if (type == "automatic")
+                        {
+                            <div class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>No filter rules defined yet</div>
+                        }
+                        else
+                        {
+                            <div>Posts will be added manually after creation.</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? CollectionId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(CollectionId);
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showDeleteConfirm;
+    private bool showAddPost;
+
+    private Collection? collection;
+    private List<Post> collectionPosts = [];
+
+    // Form fields
+    private string title = "";
+    private string slug = "";
+    private string? description;
+    private string type = "manual";
+    private string? filter;
+    private string? featureImage;
+
+    // Filter builder data
+    private List<Tag> allTags = [];
+    private List<User> allAuthors = [];
+    private List<Post> previewPosts = [];
+    private bool previewLoading;
+    private string? previewError;
+    private CancellationTokenSource? previewCts;
+
+    // Add post modal
+    private string postSearch = "";
+    private List<Post>? availablePosts;
+
+    // JS Interop
+    private IJSObjectReference? jsModule;
+    private DotNetObjectReference<CollectionEditor>? dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            collection = await CollectionService.GetByIdAsync(CollectionId!);
+            if (collection is null)
+            {
+                Navigation.NavigateTo("collections");
+                return;
+            }
+
+            title = collection.Title;
+            slug = collection.Slug;
+            description = collection.Description;
+            type = collection.Type;
+            filter = collection.Filter;
+            featureImage = collection.FeatureImage;
+
+            collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+        }
+
+        allTags = await TagRepository.GetAllAsync();
+        allAuthors = await UserRepository.GetActiveAuthorsAsync();
+
+        if (type == "automatic")
+            await RefreshPreviewAsync(immediate: true);
+
+        loaded = true;
+    }
+
+    private async Task OnFilterChanged(string? newFilter)
+    {
+        filter = newFilter;
+        await RefreshPreviewAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            statusMessage = "Title is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+
+        try
+        {
+            if (IsNew)
+            {
+                var created = await CollectionService.CreateAsync(new CreateCollectionRequest
+                {
+                    Title = title,
+                    Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                    Description = description,
+                    Type = type,
+                    Filter = type == "automatic" ? filter : null,
+                    FeatureImage = featureImage,
+                });
+
+                Navigation.NavigateTo($"collections/{created.Id}/edit");
+            }
+            else
+            {
+                await CollectionService.UpdateAsync(CollectionId!, new UpdateCollectionRequest
+                {
+                    Title = title,
+                    Slug = slug,
+                    Description = description,
+                    Filter = type == "automatic" ? filter : null,
+                    FeatureImage = featureImage,
+                });
+
+                // Refresh posts for automatic collections after filter change
+                if (type == "automatic")
+                    collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+
+                statusMessage = "Saved";
+                isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        try
+        {
+            await CollectionService.DeleteAsync(CollectionId!);
+            Navigation.NavigateTo("collections");
+        }
+        catch (Exception ex)
+        {
+            showDeleteConfirm = false;
+            statusMessage = ex.Message;
+            isError = true;
+        }
+    }
+
+    // ================================================================
+    // Manual collection post management
+    // ================================================================
+
+    private async Task OpenAddPostModal()
+    {
+        postSearch = "";
+        availablePosts = null;
+        showAddPost = true;
+        await SearchPostsAsync();
+    }
+
+    private async Task SearchPostsAsync()
+    {
+        var existingPostIds = collectionPosts.Select(p => p.Id).ToHashSet();
+
+        var result = await PostRepository.GetAllAsync(null, "post", 1, 50);
+        availablePosts = result.Items
+            .Where(p => !existingPostIds.Contains(p.Id))
+            .Where(p => string.IsNullOrWhiteSpace(postSearch)
+                || p.Title.Contains(postSearch, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private async Task AddPostToCollectionAsync(string postId)
+    {
+        try
+        {
+            await CollectionService.AddPostAsync(CollectionId!, postId);
+            collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+            await SearchPostsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+    }
+
+    private async Task RemovePostAsync(string postId)
+    {
+        try
+        {
+            await CollectionService.RemovePostAsync(CollectionId!, postId);
+            collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+    }
+
+    private async Task UploadFeatureImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        featureImage = result.Url;
+        statusMessage = null;
+        isError = false;
+    }
+
+    private void RemoveFeatureImage()
+    {
+        featureImage = null;
+        statusMessage = null;
+        isError = false;
+    }
+
+    private async Task MovePostAsync(int fromIndex, int toIndex)
+    {
+        if (toIndex < 0 || toIndex >= collectionPosts.Count) return;
+
+        // Swap in local list
+        (collectionPosts[fromIndex], collectionPosts[toIndex]) = (collectionPosts[toIndex], collectionPosts[fromIndex]);
+
+        // Save new order
+        var orderedIds = collectionPosts.Select(p => p.Id).ToList();
+        try
+        {
+            await CollectionService.ReorderPostsAsync(CollectionId!, orderedIds);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+            // Revert local state
+            collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+        }
+    }
+
+    private async Task RefreshPreviewAsync(bool immediate = false)
+    {
+        previewCts?.Cancel();
+        previewCts?.Dispose();
+
+        if (type != "automatic")
+        {
+            previewLoading = false;
+            previewError = null;
+            previewPosts.Clear();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            previewLoading = false;
+            previewError = null;
+            previewPosts.Clear();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        previewLoading = true;
+        previewError = null;
+        await InvokeAsync(StateHasChanged);
+
+        previewCts = new CancellationTokenSource();
+        var token = previewCts.Token;
+
+        try
+        {
+            if (!immediate)
+                await Task.Delay(250, token);
+
+            var posts = await CollectionService.PreviewPostsAsync(filter, 10, token);
+            if (token.IsCancellationRequested)
+                return;
+
+            previewPosts = posts;
+            previewLoading = false;
+            previewError = null;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (token.IsCancellationRequested)
+                return;
+
+            previewPosts.Clear();
+            previewLoading = false;
+            previewError = ex.Message;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Only initialize for manual collections after loading
+        if (!loaded || type != "manual" || jsModule is not null)
+            return;
+
+        try
+        {
+            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "./js/collections-sortable.js");
+
+            dotNetRef = DotNetObjectReference.Create(this);
+            
+            if (jsModule != null)
+                await jsModule.InvokeVoidAsync("init", dotNetRef);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to initialize drag-and-drop: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnPostReordered(int oldIndex, int newIndex)
+    {
+        if (oldIndex < 0 || oldIndex >= collectionPosts.Count ||
+            newIndex < 0 || newIndex >= collectionPosts.Count)
+            return;
+
+        // Swap in local list
+        (collectionPosts[oldIndex], collectionPosts[newIndex]) = 
+            (collectionPosts[newIndex], collectionPosts[oldIndex]);
+
+        // Save new order
+        var orderedIds = collectionPosts.Select(p => p.Id).ToList();
+        try
+        {
+            await CollectionService.ReorderPostsAsync(CollectionId!, orderedIds);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+            // Revert local state on error
+            collectionPosts = await CollectionService.GetPostsAsync(CollectionId!);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        previewCts?.Cancel();
+        previewCts?.Dispose();
+
+        if (jsModule is not null)
+        {
+            try
+            {
+                await jsModule.InvokeVoidAsync("destroy");
+                await jsModule.DisposeAsync();
+            }
+            catch { }
+        }
+
+        dotNetRef?.Dispose();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

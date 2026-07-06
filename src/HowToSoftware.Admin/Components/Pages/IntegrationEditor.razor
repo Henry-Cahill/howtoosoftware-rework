@@ -1,0 +1,541 @@
+@page "/integrations/new"
+@page "/integrations/{IntegrationId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IIntegrationService IntegrationService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Integration" : $"Edit — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="integrations" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Integrations
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Integration</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@name</strong>? All API keys and webhooks for this integration will also be removed. This cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Regenerate Key Confirmation Modal -->
+@if (keyToRegenerate is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Regenerate API Key</h5>
+                    <button type="button" class="btn-close" @onclick="() => keyToRegenerate = null"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to regenerate this <strong>@keyToRegenerate.Type</strong> API key? Any applications using the current key will stop working.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => keyToRegenerate = null">Cancel</button>
+                    <button class="btn btn-warning" @onclick="RegenerateKeyAsync">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Regenerate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Webhook Confirmation Modal -->
+@if (webhookToDelete is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Webhook</h5>
+                    <button type="button" class="btn-close" @onclick="() => webhookToDelete = null"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the webhook <strong>@(webhookToDelete.Name ?? webhookToDelete.Event)</strong>?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => webhookToDelete = null">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteWebhookAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- Basic Info -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="Integration name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="3" @bind="description"
+                                  placeholder="Short description of this integration…"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Keys (only after creation) -->
+            @if (!IsNew && integration is not null)
+            {
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-key-fill me-1"></i>API Keys</h6>
+                    </div>
+                    <div class="card-body">
+                        @foreach (var key in integration.ApiKeys.OrderBy(k => k.Type))
+                        {
+                            <div class="api-key-row mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="badge @(key.Type == "content" ? "bg-success" : "bg-primary")">
+                                        @key.Type.ToUpperInvariant() API KEY
+                                    </span>
+                                    <button class="btn btn-sm btn-outline-warning" @onclick="() => keyToRegenerate = key">
+                                        <i class="bi bi-arrow-clockwise me-1"></i>Regenerate
+                                    </button>
+                                </div>
+                                <div class="input-group">
+                                    @if (key.Type == "content")
+                                    {
+                                        <input type="text" class="form-control form-control-sm font-monospace" value="@key.Secret" readonly />
+                                    }
+                                    else
+                                    {
+                                        <input type="text" class="form-control form-control-sm font-monospace"
+                                               value="@($"{key.Id}:{key.Secret}")" readonly />
+                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyToClipboard(key)">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </div>
+                                @if (key.LastSeenAt.HasValue)
+                                {
+                                    <small class="text-muted">Last used: @key.LastSeenAt.Value.ToString("yyyy-MM-dd HH:mm UTC")</small>
+                                }
+                            </div>
+                        }
+
+                        @if (integration.ApiKeys.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">No API keys. Keys are generated automatically when an integration is created.</p>
+                        }
+                    </div>
+                </div>
+
+                <!-- Webhooks -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-broadcast me-1"></i>Webhooks</h6>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="ShowAddWebhook">
+                            <i class="bi bi-plus-lg me-1"></i>Add webhook
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (showWebhookForm)
+                        {
+                            <div class="webhook-form mb-3 p-3 border rounded">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label small">Name</label>
+                                        <input type="text" class="form-control form-control-sm" @bind="newWebhookName"
+                                               placeholder="My webhook" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small">Event</label>
+                                        <select class="form-select form-select-sm" @bind="newWebhookEvent">
+                                            <option value="">Select event…</option>
+                                            @foreach (var evt in WebhookEvents)
+                                            {
+                                                <option value="@evt">@evt</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small">Target URL</label>
+                                        <input type="url" class="form-control form-control-sm" @bind="newWebhookUrl"
+                                               placeholder="https://example.com/webhook" />
+                                    </div>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-primary" @onclick="AddWebhookAsync" disabled="@savingWebhook">
+                                        @if (savingWebhook) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                        <i class="bi bi-check-lg me-1"></i>Save
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAddWebhook">Cancel</button>
+                                </div>
+                                @if (!string.IsNullOrEmpty(webhookError))
+                                {
+                                    <div class="text-danger small mt-2">@webhookError</div>
+                                }
+                            </div>
+                        }
+
+                        @if (integration.Webhooks.Count > 0)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Event</th>
+                                            <th>Target URL</th>
+                                            <th>Last triggered</th>
+                                            <th style="width: 60px"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var wh in integration.Webhooks.OrderBy(w => w.Event))
+                                        {
+                                            <tr>
+                                                <td class="small">@(wh.Name ?? "—")</td>
+                                                <td><span class="badge bg-secondary font-monospace">@wh.Event</span></td>
+                                                <td class="small text-break">@wh.TargetUrl</td>
+                                                <td class="small text-muted">
+                                                    @if (wh.LastTriggeredAt.HasValue)
+                                                    {
+                                                        <span class="@(wh.LastTriggeredStatus == "success" ? "text-success" : "text-danger")">
+                                                            @wh.LastTriggeredAt.Value.ToString("yyyy-MM-dd HH:mm")
+                                                            (@wh.LastTriggeredStatus)
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>Never</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => webhookToDelete = wh">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else if (!showWebhookForm)
+                        {
+                            <p class="text-muted small mb-0">No webhooks configured. Add one to receive notifications when events occur.</p>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && integration is not null)
+            {
+                <div class="card">
+                    <div class="card-header"><h6 class="mb-0">Details</h6></div>
+                    <div class="card-body small text-muted">
+                        <div class="mb-2">
+                            <strong>ID:</strong>
+                            <span class="font-monospace">@integration.Id</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Slug:</strong> @integration.Slug
+                        </div>
+                        <div class="mb-2">
+                            <strong>Type:</strong>
+                            <span class="badge bg-secondary">@integration.Type</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Created:</strong> @integration.CreatedAt.ToString("yyyy-MM-dd HH:mm UTC")
+                        </div>
+                        @if (integration.UpdatedAt.HasValue)
+                        {
+                            <div class="mb-2">
+                                <strong>Updated:</strong> @integration.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm UTC")
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? IntegrationId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(IntegrationId);
+
+    private Integration? integration;
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showDeleteConfirm;
+
+    // Fields
+    private string name = "";
+    private string? description;
+
+    // Key regeneration
+    private ApiKey? keyToRegenerate;
+
+    // Webhook form
+    private bool showWebhookForm;
+    private bool savingWebhook;
+    private string newWebhookName = "";
+    private string newWebhookEvent = "";
+    private string newWebhookUrl = "";
+    private string? webhookError;
+    private Webhook? webhookToDelete;
+
+    private static readonly string[] WebhookEvents =
+    [
+        "post.added",
+        "post.deleted",
+        "post.edited",
+        "post.published",
+        "post.published.edited",
+        "post.unpublished",
+        "post.scheduled",
+        "post.unscheduled",
+        "post.rescheduled",
+        "page.added",
+        "page.deleted",
+        "page.edited",
+        "page.published",
+        "page.unpublished",
+        "member.added",
+        "member.edited",
+        "member.deleted",
+        "tag.added",
+        "tag.deleted",
+        "tag.edited",
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            integration = await IntegrationService.GetByIdAsync(IntegrationId!);
+            if (integration is null)
+            {
+                Navigation.NavigateTo("integrations");
+                return;
+            }
+            name = integration.Name;
+            description = integration.Description;
+        }
+        loaded = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+
+        try
+        {
+            if (IsNew)
+            {
+                integration = await IntegrationService.CreateAsync(name.Trim(), description?.Trim());
+                Navigation.NavigateTo($"integrations/{integration.Id}/edit");
+            }
+            else
+            {
+                integration!.Name = name.Trim();
+                integration.Description = description?.Trim();
+                await IntegrationService.UpdateAsync(integration);
+                integration = await IntegrationService.GetByIdAsync(integration.Id);
+                statusMessage = "Saved";
+                isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (integration is null) return;
+        await IntegrationService.DeleteAsync(integration.Id);
+        Navigation.NavigateTo("integrations");
+    }
+
+    private async Task RegenerateKeyAsync()
+    {
+        if (keyToRegenerate is null) return;
+        try
+        {
+            await IntegrationService.RegenerateApiKeyAsync(keyToRegenerate.Id);
+            integration = await IntegrationService.GetByIdAsync(integration!.Id);
+            statusMessage = $"{keyToRegenerate.Type.ToUpperInvariant()} API key regenerated";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            keyToRegenerate = null;
+        }
+    }
+
+    private void ShowAddWebhook()
+    {
+        showWebhookForm = true;
+        newWebhookName = "";
+        newWebhookEvent = "";
+        newWebhookUrl = "";
+        webhookError = null;
+    }
+
+    private void CancelAddWebhook()
+    {
+        showWebhookForm = false;
+        webhookError = null;
+    }
+
+    private async Task AddWebhookAsync()
+    {
+        webhookError = null;
+
+        if (string.IsNullOrWhiteSpace(newWebhookEvent))
+        {
+            webhookError = "Please select an event.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(newWebhookUrl) || !Uri.TryCreate(newWebhookUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != "https" && uri.Scheme != "http"))
+        {
+            webhookError = "Please enter a valid URL.";
+            return;
+        }
+
+        savingWebhook = true;
+        try
+        {
+            await IntegrationService.AddWebhookAsync(
+                integration!.Id,
+                newWebhookName.Trim(),
+                newWebhookEvent,
+                newWebhookUrl.Trim());
+
+            integration = await IntegrationService.GetByIdAsync(integration.Id);
+            showWebhookForm = false;
+            statusMessage = "Webhook added";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            webhookError = ex.Message;
+        }
+        finally
+        {
+            savingWebhook = false;
+        }
+    }
+
+    private async Task DeleteWebhookAsync()
+    {
+        if (webhookToDelete is null) return;
+        try
+        {
+            await IntegrationService.DeleteWebhookAsync(webhookToDelete.Id);
+            integration = await IntegrationService.GetByIdAsync(integration!.Id);
+            statusMessage = "Webhook deleted";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            webhookToDelete = null;
+        }
+    }
+
+    private void CopyToClipboard(ApiKey key)
+    {
+        // Clipboard is handled by JS interop in a real deployment;
+        // for now we just indicate the value is available in the read-only input
+        statusMessage = $"{key.Type.ToUpperInvariant()} key copied";
+        isError = false;
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,729 @@
+@page "/pages"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.AspNetCore.Components
+@attribute [Authorize(Roles = "Owner,Administrator,Editor,Author,Contributor")]
+@implements IAsyncDisposable
+@inject IPostRepository PostRepository
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Pages — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-3">
+        <h1 class="mb-0">Pages</h1>
+        <div class="btn-group btn-group-sm" role="group">
+            <button class="btn @(viewMode == "list" ? "btn-secondary" : "btn-outline-secondary")"
+                    @onclick="SwitchToListAsync" title="List view">
+                <i class="bi bi-list-ul"></i>
+            </button>
+            <button class="btn @(viewMode == "tree" ? "btn-secondary" : "btn-outline-secondary")"
+                    @onclick="SwitchToTreeAsync" title="Tree view">
+                <i class="bi bi-diagram-3"></i>
+            </button>
+        </div>
+    </div>
+    <a href="pages/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New page</a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Status</label>
+                <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                    <option value="scheduled">Scheduled</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Author</label>
+                <select class="form-select form-select-sm" @bind="authorFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All authors</option>
+                    @foreach (var author in authors)
+                    {
+                        <option value="@author.Id">@author.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Tag</label>
+                <select class="form-select form-select-sm" @bind="tagFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All tags</option>
+                    @foreach (var tag in tags)
+                    {
+                        <option value="@tag.Id">@tag.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by title…"
+                       @bind="searchQuery" @bind:after="ApplyFiltersAsync" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions -->
+@if (selectedIds.Count > 0)
+{
+    <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+        <strong>@selectedIds.Count selected</strong>
+        <button class="btn btn-sm btn-outline-warning" @onclick="BulkFeatureAsync">
+            <i class="bi bi-star-fill me-1"></i>Feature
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="BulkUnfeatureAsync">
+            <i class="bi bi-star me-1"></i>Unfeature
+        </button>
+        <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+            <i class="bi bi-trash-fill me-1"></i>Delete
+        </button>
+        <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> page(s)? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Pages View -->
+@if (viewMode == "list")
+{
+    <!-- Flat List View -->
+    @if (result is null)
+    {
+        <p class="text-muted">Loading…</p>
+    }
+    else if (result.Items.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-file-earmark display-4 d-block mb-2"></i>
+                No pages found.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px">
+                                <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                       @onchange="ToggleSelectAll" />
+                            </th>
+                            <th class="sortable-header" @onclick='() => ToggleSort("title")'>
+                                Title
+                                @if (sortColumn == "title") { <i class="bi @SortIcon"></i> }
+                            </th>
+                            <th class="sortable-header" @onclick='() => ToggleSort("status")'>
+                                Status
+                                @if (sortColumn == "status") { <i class="bi @SortIcon"></i> }
+                            </th>
+                            <th>Author</th>
+                            <th>Tags</th>
+                            <th class="sortable-header" @onclick='() => ToggleSort("date")'>
+                                Date
+                                @if (sortColumn == "date") { <i class="bi @SortIcon"></i> }
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in result.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input"
+                                           checked="@selectedIds.Contains(item.Id)"
+                                           @onchange="() => ToggleSelection(item.Id)" />
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        @if (item.Featured)
+                                        {
+                                            <i class="bi bi-star-fill text-warning" title="Featured"></i>
+                                        }
+                                        <a href="@($"pages/{item.Id}/edit")" class="fw-medium text-decoration-none text-body">
+                                            @item.Title
+                                        </a>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge @StatusBadgeClass(item.Status)">@item.Status</span>
+                                </td>
+                                <td class="text-muted small">
+                                    @string.Join(", ", item.PostsAuthors.Select(pa => pa.Author.Name))
+                                </td>
+                                <td class="text-muted small">
+                                    @if (item.PostsTags.Any())
+                                    {
+                                        @string.Join(", ", item.PostsTags.Take(3).Select(pt => pt.Tag.Name))
+                                        @if (item.PostsTags.Count > 3)
+                                        {
+                                            <span> +@(item.PostsTags.Count - 3)</span>
+                                        }
+                                    }
+                                </td>
+                                <td class="text-muted small text-nowrap">
+                                    @FormatDate(item.PublishedAt ?? item.UpdatedAt ?? item.CreatedAt)
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        @if (result.TotalPages > 1)
+        {
+            <nav class="mt-3 d-flex justify-content-between align-items-center">
+                <small class="text-muted">
+                    @((result.Page - 1) * result.PageSize + 1)–@(Math.Min(result.Page * result.PageSize, result.TotalCount))
+                    of @result.TotalCount pages
+                </small>
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item @(result.HasPreviousPage ? "" : "disabled")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(result.Page - 1)" disabled="@(!result.HasPreviousPage)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                    </li>
+                    @for (var i = PaginationStart; i <= PaginationEnd; i++)
+                    {
+                        var pageNum = i;
+                        <li class="page-item @(pageNum == result.Page ? "active" : "")">
+                            <button class="page-link" @onclick="() => GoToPageAsync(pageNum)">@pageNum</button>
+                        </li>
+                    }
+                    <li class="page-item @(result.HasNextPage ? "" : "disabled")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(result.Page + 1)" disabled="@(!result.HasNextPage)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+}
+else
+{
+    <!-- Tree / Hierarchy View -->
+    @if (allPages is null)
+    {
+        <p class="text-muted">Loading…</p>
+    }
+    else if (allPages.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-diagram-3 display-4 d-block mb-2"></i>
+                No pages found.
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrEmpty(treeSaveMessage))
+        {
+            <div class="alert alert-success py-2 d-flex align-items-center gap-2">
+                <i class="bi bi-check-circle"></i> @treeSaveMessage
+            </div>
+        }
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="page-tree">
+                    @foreach (var (pg, depth) in flatTree)
+                    {
+                        var hasChildren = childrenMap.TryGetValue(pg.Id, out var ch) && ch.Count > 0;
+                        var isCollapsed = collapsedIds.Contains(pg.Id);
+
+                        <div class="page-tree-item" style="padding-left: @(depth * 24 + 12)px"
+                             data-page-draggable data-page-drop data-page-id="@pg.Id">
+                            <div class="d-flex align-items-center gap-2 py-2 px-2 page-tree-row">
+                                <i class="bi bi-grip-vertical text-muted page-drag-handle"></i>
+
+                                @if (hasChildren)
+                                {
+                                    <button class="btn btn-sm btn-link text-muted p-0" style="width: 20px"
+                                            @onclick="() => ToggleCollapse(pg.Id)" @onclick:stopPropagation>
+                                        <i class="bi @(isCollapsed ? "bi-chevron-right" : "bi-chevron-down")"></i>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span style="width: 20px; display: inline-block"></span>
+                                }
+
+                                @if (pg.Featured)
+                                {
+                                    <i class="bi bi-star-fill text-warning" title="Featured"></i>
+                                }
+
+                                <a href="@($"pages/{pg.Id}/edit")" class="fw-medium text-decoration-none text-body flex-grow-1">
+                                    @pg.Title
+                                </a>
+
+                                <span class="badge @StatusBadgeClass(pg.Status) ms-auto">@pg.Status</span>
+
+                                <span class="text-muted small text-nowrap">
+                                    @FormatDate(pg.PublishedAt ?? pg.UpdatedAt ?? pg.CreatedAt)
+                                </span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (treeOrderChanged)
+        {
+            <div class="mt-3 d-flex gap-2">
+                <button class="btn btn-primary btn-sm" @onclick="SaveTreeOrderAsync" disabled="@savingTree">
+                    @if (savingTree) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    <i class="bi bi-check-lg me-1"></i>Save order
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadTreeAsync" disabled="@savingTree">
+                    Discard changes
+                </button>
+            </div>
+        }
+    }
+}
+
+@code {
+    private PagedResult<Post>? result;
+    private List<User> authors = [];
+    private List<Tag> tags = [];
+
+    // View mode
+    private string viewMode = "list";
+
+    // Tree view
+    private List<Post>? allPages;
+    private List<Post> rootPages = [];
+    private Dictionary<string, List<Post>> childrenMap = [];
+    private List<(Post Page, int Depth)> flatTree = [];
+    private HashSet<string> collapsedIds = [];
+    private bool treeOrderChanged;
+    private bool savingTree;
+    private string? treeSaveMessage;
+
+    // JS interop for drag-and-drop
+    private IJSObjectReference? treeModule;
+    private DotNetObjectReference<AdminPages>? dotNetRef;
+
+    // Filters
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? InitialStatus { get; set; }
+
+    private string statusFilter = "";
+    private string authorFilter = "";
+    private string tagFilter = "";
+    private string searchQuery = "";
+
+    // Sorting
+    private string sortColumn = "date";
+    private bool sortAscending;
+
+    // Pagination
+    private int currentPage = 1;
+    private const int PageSize = 25;
+
+    // Selection
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+
+    private bool allSelected => result is not null && result.Items.Count > 0
+        && result.Items.All(p => selectedIds.Contains(p.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    private int PaginationStart => Math.Max(1, (result?.Page ?? 1) - 2);
+    private int PaginationEnd => Math.Min(result?.TotalPages ?? 1, PaginationStart + 4);
+
+    [Inject] private ITagRepository TagRepository { get; set; } = default!;
+    [Inject] private IUserRepository UserRepository { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(InitialStatus))
+            statusFilter = InitialStatus;
+
+        var allTags = await TagRepository.GetAllAsync();
+        tags = [.. allTags.OrderBy(t => t.Name)];
+
+        var allUsers = await UserRepository.GetAllAsync();
+        authors = [.. allUsers.OrderBy(u => u.Name)];
+
+        await LoadPagesAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (viewMode == "tree" && allPages is not null && allPages.Count > 0)
+        {
+            await InitTreeDragDropAsync();
+        }
+    }
+
+    private async Task InitTreeDragDropAsync()
+    {
+        dotNetRef ??= DotNetObjectReference.Create(this);
+        treeModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/page-tree.js");
+        await treeModule.InvokeVoidAsync("init", dotNetRef);
+    }
+
+    [JSInvokable]
+    public async Task OnPageDropped(string draggedId, string targetId, string position)
+    {
+        if (allPages is null || draggedId == targetId) return;
+
+        var dragged = allPages.FirstOrDefault(p => p.Id == draggedId);
+        var target = allPages.FirstOrDefault(p => p.Id == targetId);
+        if (dragged is null || target is null) return;
+
+        switch (position)
+        {
+            case "child":
+                dragged.ParentId = target.Id;
+                break;
+            case "above":
+            case "below":
+                dragged.ParentId = target.ParentId;
+                break;
+        }
+
+        RebuildTree();
+
+        // Reorder siblings based on drop position
+        var siblingParentId = dragged.ParentId;
+        var siblings = siblingParentId is null ? rootPages : (childrenMap.GetValueOrDefault(siblingParentId) ?? []);
+        siblings.Remove(dragged);
+
+        if (position == "child")
+        {
+            // Add as last child
+            if (!childrenMap.ContainsKey(target.Id))
+                childrenMap[target.Id] = [];
+            childrenMap[target.Id].Add(dragged);
+        }
+        else
+        {
+            var targetIndex = siblings.IndexOf(target);
+            if (targetIndex < 0) targetIndex = 0;
+            if (position == "below") targetIndex++;
+            if (targetIndex > siblings.Count) targetIndex = siblings.Count;
+            siblings.Insert(targetIndex, dragged);
+        }
+
+        // Update sort orders
+        UpdateSortOrders(rootPages, null);
+        BuildFlatTree();
+
+        treeOrderChanged = true;
+        treeSaveMessage = null;
+        await InvokeAsync(StateHasChanged);
+
+        // Re-bind drag events after DOM update
+        if (treeModule is not null)
+        {
+            await Task.Yield();
+            await treeModule.InvokeVoidAsync("bindDragEvents");
+        }
+    }
+
+    private void UpdateSortOrders(List<Post> pages, string? parentId)
+    {
+        for (var i = 0; i < pages.Count; i++)
+        {
+            pages[i].SortOrder = i;
+            pages[i].ParentId = parentId;
+            if (childrenMap.TryGetValue(pages[i].Id, out var children))
+            {
+                UpdateSortOrders(children, pages[i].Id);
+            }
+        }
+    }
+
+    private void RebuildTree()
+    {
+        if (allPages is null) return;
+
+        childrenMap = [];
+        rootPages = [];
+
+        foreach (var page in allPages)
+        {
+            if (page.ParentId is null)
+            {
+                rootPages.Add(page);
+            }
+            else
+            {
+                if (!childrenMap.ContainsKey(page.ParentId))
+                    childrenMap[page.ParentId] = [];
+                childrenMap[page.ParentId].Add(page);
+            }
+        }
+
+        rootPages = [.. rootPages.OrderBy(p => p.SortOrder).ThenBy(p => p.Title)];
+        foreach (var kvp in childrenMap)
+        {
+            childrenMap[kvp.Key] = [.. kvp.Value.OrderBy(p => p.SortOrder).ThenBy(p => p.Title)];
+        }
+
+        BuildFlatTree();
+    }
+
+    private void BuildFlatTree()
+    {
+        flatTree = [];
+        AddToFlatTree(rootPages, 0);
+    }
+
+    private void AddToFlatTree(List<Post> pages, int depth)
+    {
+        foreach (var page in pages)
+        {
+            flatTree.Add((page, depth));
+            if (!collapsedIds.Contains(page.Id) && childrenMap.TryGetValue(page.Id, out var children))
+            {
+                AddToFlatTree(children, depth + 1);
+            }
+        }
+    }
+
+    private void ToggleCollapse(string id)
+    {
+        if (!collapsedIds.Remove(id))
+            collapsedIds.Add(id);
+        BuildFlatTree();
+    }
+
+    private async Task SaveTreeOrderAsync()
+    {
+        if (allPages is null) return;
+        savingTree = true;
+        treeSaveMessage = null;
+
+        try
+        {
+            var updates = allPages
+                .Select(p => (p.Id, p.ParentId, p.SortOrder))
+                .ToList();
+            await PostRepository.UpdateSortOrderAsync(updates);
+            treeOrderChanged = false;
+            treeSaveMessage = "Page order saved";
+        }
+        catch (Exception ex)
+        {
+            treeSaveMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            savingTree = false;
+        }
+    }
+
+    private async Task ReloadTreeAsync()
+    {
+        treeOrderChanged = false;
+        treeSaveMessage = null;
+        await LoadTreeAsync();
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        allPages = await PostRepository.GetAllPagesAsync();
+        RebuildTree();
+    }
+
+    private Task SwitchToListAsync() => SwitchViewAsync("list");
+    private Task SwitchToTreeAsync() => SwitchViewAsync("tree");
+
+    private async Task SwitchViewAsync(string mode)
+    {
+        viewMode = mode;
+        if (mode == "tree" && allPages is null)
+        {
+            await LoadTreeAsync();
+        }
+    }
+
+    private async Task LoadPagesAsync()
+    {
+        result = await PostRepository.GetAllAsync(
+            string.IsNullOrEmpty(statusFilter) ? null : statusFilter,
+            "page",
+            currentPage,
+            PageSize);
+
+        if (result is not null)
+        {
+            var filtered = result.Items.AsEnumerable();
+
+            if (!string.IsNullOrEmpty(authorFilter))
+                filtered = filtered.Where(p => p.PostsAuthors.Any(pa => pa.AuthorId == authorFilter));
+
+            if (!string.IsNullOrEmpty(tagFilter))
+                filtered = filtered.Where(p => p.PostsTags.Any(pt => pt.TagId == tagFilter));
+
+            if (!string.IsNullOrEmpty(searchQuery))
+                filtered = filtered.Where(p => p.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+            filtered = sortColumn switch
+            {
+                "title" => sortAscending
+                    ? filtered.OrderBy(p => p.Title)
+                    : filtered.OrderByDescending(p => p.Title),
+                "status" => sortAscending
+                    ? filtered.OrderBy(p => p.Status)
+                    : filtered.OrderByDescending(p => p.Status),
+                _ => sortAscending
+                    ? filtered.OrderBy(p => p.PublishedAt ?? p.UpdatedAt ?? p.CreatedAt)
+                    : filtered.OrderByDescending(p => p.PublishedAt ?? p.UpdatedAt ?? p.CreatedAt),
+            };
+
+            result = new PagedResult<Post>
+            {
+                Items = filtered.ToList(),
+                Page = result.Page,
+                PageSize = result.PageSize,
+                TotalCount = result.TotalCount,
+            };
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadPagesAsync();
+    }
+
+    private async Task ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column == "title";
+        }
+        await LoadPagesAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        currentPage = page;
+        selectedIds.Clear();
+        await LoadPagesAsync();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (result is null) return;
+
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. result.Items.Select(p => p.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkFeatureAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.SetFeaturedAsync([.. selectedIds], true);
+        selectedIds.Clear();
+        await LoadPagesAsync();
+    }
+
+    private async Task BulkUnfeatureAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.SetFeaturedAsync([.. selectedIds], false);
+        selectedIds.Clear();
+        await LoadPagesAsync();
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.DeleteManyAsync([.. selectedIds]);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadPagesAsync();
+    }
+
+    private static string StatusBadgeClass(string status) => status switch
+    {
+        "published" => "bg-success",
+        "draft" => "bg-secondary",
+        "scheduled" => "bg-info text-dark",
+        _ => "bg-secondary",
+    };
+
+    private static string FormatDate(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        return dt.ToString("MMM d, yyyy");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (treeModule is not null)
+        {
+            try { await treeModule.InvokeVoidAsync("destroy"); } catch { }
+            await treeModule.DisposeAsync();
+        }
+        dotNetRef?.Dispose();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

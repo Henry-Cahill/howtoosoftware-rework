@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HowToSoftware.Migrator.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HowToSoftware.Core\HowToSoftware.Core.csproj" />
+    <ProjectReference Include="..\HowToSoftware.Infrastructure\HowToSoftware.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

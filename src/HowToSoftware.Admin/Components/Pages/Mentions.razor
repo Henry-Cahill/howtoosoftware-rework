@@ -1,0 +1,617 @@
+@page "/mentions"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IMentionService MentionService
+@rendermode InteractiveServer
+
+<PageTitle>Mentions — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Webmentions</h1>
+</div>
+
+@if (allMentions is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (allMentions.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-chat-quote display-4 d-block mb-2"></i>
+            No webmentions received yet.
+        </div>
+    </div>
+}
+else
+{
+    <!-- Search -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-6">
+                    <label class="form-label mb-0 small text-muted">Search</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search by URL or title…"
+                           @bind="searchQuery" @bind:after="ApplyFilter" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label mb-0 small text-muted">Status</label>
+                    <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ApplyFilter">
+                        <option value="all">All</option>
+                        <option value="verified">Verified</option>
+                        <option value="unverified">Unverified</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label mb-0 small text-muted">Approval</label>
+                    <select class="form-select form-select-sm" @bind="approvalFilter" @bind:after="ApplyFilter">
+                        <option value="all">All</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions -->
+    @if (selectedIds.Count > 0)
+    {
+        <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+            <strong>@selectedIds.Count selected</strong>
+            <button class="btn btn-sm btn-outline-success" @onclick="BulkApproveAsync">
+                <i class="bi bi-check-circle-fill me-1"></i>Approve
+            </button>
+            <button class="btn btn-sm btn-outline-warning" @onclick="BulkRejectAsync">
+                <i class="bi bi-x-circle-fill me-1"></i>Reject
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+                <i class="bi bi-trash-fill me-1"></i>Delete
+            </button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="BulkVerifyAsync">
+                <i class="bi bi-check-circle me-1"></i>Re-verify
+            </button>
+            <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+        </div>
+    }
+
+    <!-- Delete Confirmation Modal -->
+    @if (showDeleteConfirm)
+    {
+        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                        <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> mention(s)? This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                        <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                            <i class="bi bi-trash-fill me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("source")'>
+                            Source
+                            @if (sortColumn == "source") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("target")'>
+                            Target
+                            @if (sortColumn == "target") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Status</th>
+                        <th>Approval</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("created")'>
+                            Received
+                            @if (sortColumn == "created") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var mention in filtered)
+                    {
+                        <tr style="cursor: pointer" @onclick="() => OpenDetail(mention)">
+                            <td @onclick:stopPropagation="true">
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(mention.Id)"
+                                       @onchange="() => ToggleSelection(mention.Id)" />
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    @if (!string.IsNullOrEmpty(mention.SourceFavicon))
+                                    {
+                                        <img src="@mention.SourceFavicon" alt="" width="16" height="16" class="rounded" />
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-globe text-muted"></i>
+                                    }
+                                    <div>
+                                        <span class="fw-medium small">
+                                            @(mention.SourceTitle ?? TruncateUrl(mention.Source))
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(mention.SourceAuthor))
+                                        {
+                                            <div class="text-muted small">by @mention.SourceAuthor</div>
+                                        }
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="font-monospace small text-muted">@TruncateUrl(mention.Target)</td>
+                            <td>
+                                @if (mention.Verified)
+                                {
+                                    <span class="badge bg-success">Verified</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">Unverified</span>
+                                }
+                            </td>
+                            <td>
+                                @{
+                                    var (cls, label, icon) = ApprovalBadge(mention.Status);
+                                }
+                                <span class="badge @cls"><i class="bi @icon me-1"></i>@label</span>
+                            </td>
+                            <td class="small text-muted">@mention.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td @onclick:stopPropagation="true">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary" title="View details"
+                                            @onclick="() => OpenDetail(mention)">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    @if (mention.Status != MentionStatus.Approved)
+                                    {
+                                        <button class="btn btn-outline-success" title="Approve"
+                                                @onclick="() => ApproveOneAsync(mention.Id)">
+                                            <i class="bi bi-check-circle-fill"></i>
+                                        </button>
+                                    }
+                                    @if (mention.Status != MentionStatus.Rejected)
+                                    {
+                                        <button class="btn btn-outline-warning" title="Reject"
+                                                @onclick="() => RejectOneAsync(mention.Id)">
+                                            <i class="bi bi-x-circle-fill"></i>
+                                        </button>
+                                    }
+                                    <button class="btn btn-outline-primary" title="Re-verify"
+                                            @onclick="() => VerifyOneAsync(mention.Id)">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" title="Delete"
+                                            @onclick="() => DeleteOneAsync(mention.Id)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filtered.Count mention(s)</small>
+    </div>
+}
+
+@if (detailMention is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)" @onclick="CloseDetail">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="d-flex align-items-center gap-2">
+                        @if (!string.IsNullOrEmpty(detailMention.SourceFavicon))
+                        {
+                            <img src="@detailMention.SourceFavicon" alt="" width="24" height="24" class="rounded" />
+                        }
+                        else
+                        {
+                            <i class="bi bi-globe fs-5 text-muted"></i>
+                        }
+                        <h5 class="modal-title mb-0">@(detailMention.SourceTitle ?? "Webmention")</h5>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CloseDetail"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Status row -->
+                    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                        @if (detailMention.Verified)
+                        {
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Verified</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Unverified</span>
+                        }
+                        @{
+                            var (detCls, detLabel, detIcon) = ApprovalBadge(detailMention.Status);
+                        }
+                        <span class="badge @detCls"><i class="bi @detIcon me-1"></i>@detLabel</span>
+                        <span class="text-muted small">Received @detailMention.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+                        @if (!string.IsNullOrEmpty(detailMention.ResourceType))
+                        {
+                            <span class="badge bg-secondary">@detailMention.ResourceType</span>
+                        }
+                    </div>
+
+                    <!-- Source / Target -->
+                    <dl class="row mb-3 small">
+                        <dt class="col-sm-3 text-muted">Source</dt>
+                        <dd class="col-sm-9">
+                            <a href="@detailMention.Source" target="_blank" rel="noopener noreferrer"
+                               class="font-monospace text-break">@detailMention.Source</a>
+                        </dd>
+                        <dt class="col-sm-3 text-muted">Target</dt>
+                        <dd class="col-sm-9">
+                            <a href="@detailMention.Target" target="_blank" rel="noopener noreferrer"
+                               class="font-monospace text-break">@detailMention.Target</a>
+                        </dd>
+                        @if (!string.IsNullOrEmpty(detailMention.SourceAuthor))
+                        {
+                            <dt class="col-sm-3 text-muted">Author</dt>
+                            <dd class="col-sm-9">@detailMention.SourceAuthor</dd>
+                        }
+                        @if (!string.IsNullOrEmpty(detailMention.SourceSiteTitle))
+                        {
+                            <dt class="col-sm-3 text-muted">Site</dt>
+                            <dd class="col-sm-9">@detailMention.SourceSiteTitle</dd>
+                        }
+                        @if (!string.IsNullOrEmpty(detailMention.ResourceId))
+                        {
+                            <dt class="col-sm-3 text-muted">Resource ID</dt>
+                            <dd class="col-sm-9 font-monospace small">@detailMention.ResourceId</dd>
+                        }
+                    </dl>
+
+                    @if (!string.IsNullOrEmpty(detailMention.SourceFeaturedImage))
+                    {
+                        <div class="mb-3">
+                            <img src="@detailMention.SourceFeaturedImage" alt="Featured image"
+                                 class="img-fluid rounded" style="max-height: 240px" />
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(detailMention.SourceExcerpt))
+                    {
+                        <h6 class="text-muted small text-uppercase">Excerpt</h6>
+                        <blockquote class="blockquote border-start border-3 ps-3 small">
+                            @detailMention.SourceExcerpt
+                        </blockquote>
+                    }
+
+                    @{
+                        var linkingParagraph = ExtractLinkingParagraph(detailMention);
+                    }
+                    @if (!string.IsNullOrEmpty(linkingParagraph))
+                    {
+                        <h6 class="text-muted small text-uppercase mt-3">Linking paragraph</h6>
+                        <div class="border rounded p-2 bg-body-tertiary small">
+                            @linkingParagraph
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(detailMention.Payload))
+                    {
+                        <details class="mt-3">
+                            <summary class="text-muted small">Raw payload</summary>
+                            <pre class="small bg-body-tertiary p-2 rounded mt-2" style="max-height: 300px; overflow: auto"><code>@FormatPayload(detailMention.Payload)</code></pre>
+                        </details>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (detailMention.Status != MentionStatus.Approved)
+                    {
+                        <button class="btn btn-outline-success" @onclick="() => ApproveOneAsync(detailMention.Id)">
+                            <i class="bi bi-check-circle-fill me-1"></i>Approve
+                        </button>
+                    }
+                    @if (detailMention.Status != MentionStatus.Rejected)
+                    {
+                        <button class="btn btn-outline-warning" @onclick="() => RejectOneAsync(detailMention.Id)">
+                            <i class="bi bi-x-circle-fill me-1"></i>Reject
+                        </button>
+                    }
+                    <button class="btn btn-outline-primary" @onclick="() => VerifyOneAsync(detailMention.Id)">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Re-verify
+                    </button>
+                    <button class="btn btn-outline-danger" @onclick="() => DeleteOneAsync(detailMention.Id)">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                    <button class="btn btn-secondary" @onclick="CloseDetail">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Mention>? allMentions;
+    private List<Mention> filtered = [];
+
+    private string searchQuery = "";
+    private string statusFilter = "all";
+    private string approvalFilter = "all";
+    private string sortColumn = "created";
+    private bool sortAscending;
+
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+    private Mention? detailMention;
+
+    private bool allSelected => filtered.Count > 0
+        && filtered.All(m => selectedIds.Contains(m.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMentionsAsync();
+    }
+
+    private async Task LoadMentionsAsync()
+    {
+        allMentions = await MentionService.GetAllAsync();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (allMentions is null) return;
+
+        var result = allMentions.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            result = result.Where(m =>
+                m.Source.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.Target.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                (m.SourceTitle?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        result = statusFilter switch
+        {
+            "verified" => result.Where(m => m.Verified),
+            "unverified" => result.Where(m => !m.Verified),
+            _ => result,
+        };
+
+        result = approvalFilter switch
+        {
+            "pending" => result.Where(m => m.Status == MentionStatus.Pending),
+            "approved" => result.Where(m => m.Status == MentionStatus.Approved),
+            "rejected" => result.Where(m => m.Status == MentionStatus.Rejected),
+            _ => result,
+        };
+
+        result = sortColumn switch
+        {
+            "source" => sortAscending
+                ? result.OrderBy(m => m.SourceTitle ?? m.Source)
+                : result.OrderByDescending(m => m.SourceTitle ?? m.Source),
+            "target" => sortAscending
+                ? result.OrderBy(m => m.Target)
+                : result.OrderByDescending(m => m.Target),
+            _ => sortAscending
+                ? result.OrderBy(m => m.CreatedAt)
+                : result.OrderByDescending(m => m.CreatedAt),
+        };
+
+        filtered = result.ToList();
+        selectedIds.Clear();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column != "created";
+        }
+        ApplyFilter();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. filtered.Select(m => m.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task DeleteOneAsync(string id)
+    {
+        await MentionService.DeleteAsync(id);
+        if (detailMention?.Id == id) detailMention = null;
+        await LoadMentionsAsync();
+    }
+
+    private async Task VerifyOneAsync(string id)
+    {
+        await MentionService.VerifyAsync(id);
+        await LoadMentionsAsync();
+        if (detailMention is not null)
+        {
+            detailMention = allMentions?.FirstOrDefault(m => m.Id == id) ?? detailMention;
+        }
+    }
+
+    private async Task ApproveOneAsync(string id)
+    {
+        await MentionService.ApproveAsync(id);
+        await LoadMentionsAsync();
+        if (detailMention is not null)
+        {
+            detailMention = allMentions?.FirstOrDefault(m => m.Id == id) ?? detailMention;
+        }
+    }
+
+    private async Task RejectOneAsync(string id)
+    {
+        await MentionService.RejectAsync(id);
+        await LoadMentionsAsync();
+        if (detailMention is not null)
+        {
+            detailMention = allMentions?.FirstOrDefault(m => m.Id == id) ?? detailMention;
+        }
+    }
+
+    private void OpenDetail(Mention mention) => detailMention = mention;
+
+    private void CloseDetail() => detailMention = null;
+
+    private string? ExtractLinkingParagraph(Mention mention)
+    {
+        if (string.IsNullOrWhiteSpace(mention.Payload) || string.IsNullOrWhiteSpace(mention.Target))
+            return null;
+
+        // Try to find the source HTML in the payload and extract the paragraph that
+        // contains the link to the target.
+        string? html = TryGetPayloadString(mention.Payload, "sourceHtml", "source_html", "html", "content");
+        if (string.IsNullOrEmpty(html)) return null;
+
+        // Match <p>...href="target"...</p> (non-greedy, case-insensitive)
+        var targetEscaped = Regex.Escape(mention.Target);
+        var pattern = $"<p[^>]*>(?:(?!</p>).)*?href=[\"']{targetEscaped}[\"'](?:(?!</p>).)*?</p>";
+        try
+        {
+            var match = Regex.Match(html, pattern,
+                RegexOptions.IgnoreCase | RegexOptions.Singleline,
+                TimeSpan.FromMilliseconds(200));
+            if (match.Success)
+            {
+                // Strip HTML tags to plain text for safe rendering.
+                var text = Regex.Replace(match.Value, "<[^>]+>", " ");
+                text = Regex.Replace(text, @"\s+", " ").Trim();
+                return text.Length > 0 ? text : null;
+            }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return null;
+        }
+        return null;
+    }
+
+    private static string? TryGetPayloadString(string payload, params string[] keys)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            foreach (var key in keys)
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                    doc.RootElement.TryGetProperty(key, out var prop) &&
+                    prop.ValueKind == JsonValueKind.String)
+                {
+                    return prop.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return null;
+    }
+
+    private static string FormatPayload(string payload)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return payload;
+        }
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        foreach (var id in selectedIds)
+            await MentionService.DeleteAsync(id);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadMentionsAsync();
+    }
+
+    private async Task BulkVerifyAsync()
+    {
+        foreach (var id in selectedIds)
+            await MentionService.VerifyAsync(id);
+        selectedIds.Clear();
+        await LoadMentionsAsync();
+    }
+
+    private async Task BulkApproveAsync()
+    {
+        foreach (var id in selectedIds)
+            await MentionService.ApproveAsync(id);
+        selectedIds.Clear();
+        await LoadMentionsAsync();
+    }
+
+    private async Task BulkRejectAsync()
+    {
+        foreach (var id in selectedIds)
+            await MentionService.RejectAsync(id);
+        selectedIds.Clear();
+        await LoadMentionsAsync();
+    }
+
+    private static (string Cls, string Label, string Icon) ApprovalBadge(string status) => status switch
+    {
+        MentionStatus.Approved => ("bg-success", "Approved", "bi-check-circle-fill"),
+        MentionStatus.Rejected => ("bg-danger", "Rejected", "bi-x-circle-fill"),
+        _ => ("bg-secondary", "Pending", "bi-hourglass-split"),
+    };
+
+    private static string TruncateUrl(string url)
+    {
+        if (url.Length <= 60) return url;
+        return string.Concat(url.AsSpan(0, 57), "…");
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,157 @@
+{{!< default}}
+
+{{!-- 503 Service Unavailable - Taking a coffee break --}}
+
+<style>
+    .error-page {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+    }
+    
+    [data-theme="dark"] .error-page {
+        background: linear-gradient(135deg, #1a1a2e 0%, #1f3d2f 100%);
+    }
+    
+    .error-container { max-width: 600px; }
+    
+    .error-gif {
+        width: 100%;
+        max-width: 350px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #68d391 0%, #38a169 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+    
+    .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .error-btn-primary {
+        background: linear-gradient(135deg, #68d391 0%, #38a169 100%);
+        color: white;
+    }
+    
+    .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(56, 161, 105, 0.4);
+        color: white;
+    }
+    
+    .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+    
+    .coffee-break {
+        margin-top: 2rem;
+        background: rgba(56, 161, 105, 0.1);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: inline-block;
+    }
+    
+    .break-sign {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #38a169;
+        margin-bottom: 0.5rem;
+    }
+    
+    .break-note {
+        font-size: 0.9rem;
+        color: var(--color-midgrey);
+    }
+    
+    .coffee-emoji {
+        font-size: 2rem;
+        display: inline-block;
+        animation: steam 1s ease-in-out infinite;
+    }
+    
+    @keyframes steam {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
+    }
+</style>
+
+<section class="error-page outer">
+    <div class="error-container inner">
+        {{!-- Someone relaxing/on break --}}
+        <img 
+            src="https://media.giphy.com/media/3o7TKRwpns23QMNNiE/giphy.gif" 
+            alt="Taking a break - Service Unavailable" 
+            class="error-gif"
+        />
+        
+        <h1 class="error-code">503</h1>
+        <h2 class="error-title">Service Unavailable</h2>
+        <p class="error-description">
+            <span class="coffee-emoji">☕</span> Our servers are on a coffee break.<br>
+            Even computers need their caffeine fix sometimes!
+        </p>
+        
+        <div class="error-actions">
+            <a href="{{@site.url}}" class="error-btn error-btn-primary">
+                🏠 Head Home
+            </a>
+            <a href="javascript:location.reload()" class="error-btn error-btn-secondary">
+                🔄 Check Again
+            </a>
+        </div>
+        
+        <div class="coffee-break">
+            <div class="break-sign">
+                🪧 OUT TO LUNCH
+            </div>
+            <div class="break-note">
+                Back in 5... maybe 10... definitely soon-ish.<br>
+                Leave a message after the beep. 📟
+            </div>
+        </div>
+    </div>
+</section>

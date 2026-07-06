@@ -1,0 +1,200 @@
+@* 504 Gateway Timeout — ported from error-504.hbs *@
+
+<style>
+    .error-page-504 {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #ebf8ff 0%, #bee3f8 100%);
+    }
+
+    [data-theme="dark"] .error-page-504 {
+        background: linear-gradient(135deg, #1a1a2e 0%, #1f2d3d 100%);
+    }
+
+    .error-page-504 .error-container { max-width: 600px; }
+
+    .error-page-504 .error-gif {
+        width: 100%;
+        max-width: 380px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .error-page-504 .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #63b3ed 0%, #3182ce 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .error-page-504 .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+
+    .error-page-504 .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+
+    .error-page-504 .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .error-page-504 .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .error-page-504 .error-btn-primary {
+        background: linear-gradient(135deg, #63b3ed 0%, #3182ce 100%);
+        color: white;
+    }
+
+    .error-page-504 .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(49, 130, 206, 0.4);
+        color: white;
+    }
+
+    .error-page-504 .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+
+    .error-page-504 .waiting-dots {
+        font-size: 2rem;
+        margin: 1rem 0;
+    }
+
+    .error-page-504 .dot {
+        animation: blink 1.5s infinite;
+        opacity: 0;
+    }
+
+    .error-page-504 .dot:nth-child(1) { animation-delay: 0s; }
+    .error-page-504 .dot:nth-child(2) { animation-delay: 0.3s; }
+    .error-page-504 .dot:nth-child(3) { animation-delay: 0.6s; }
+
+    @@keyframes blink {
+        0%, 100% { opacity: 0; }
+        50% { opacity: 1; }
+    }
+
+    .error-page-504 .timeout-counter {
+        margin-top: 2rem;
+        background: rgba(49, 130, 206, 0.1);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: inline-block;
+    }
+
+    .error-page-504 .counter-label {
+        font-size: 0.9rem;
+        color: var(--color-midgrey);
+        margin-bottom: 0.5rem;
+    }
+
+    .error-page-504 .counter-time {
+        font-family: 'Courier New', monospace;
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #3182ce;
+    }
+
+    .error-page-504 .skeleton-emoji {
+        font-size: 1.5rem;
+        display: inline-block;
+        animation: age 2s ease-in-out infinite;
+    }
+
+    @@keyframes age {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1) rotate(5deg); }
+    }
+</style>
+
+<section class="error-page-504 outer">
+    <div class="error-container inner">
+        <img
+            src="https://media.giphy.com/media/QBd2kLB5qDmysEXre9/giphy.gif"
+            alt="Waiting forever - Gateway Timeout"
+            class="error-gif"
+            loading="lazy"
+        />
+
+        <h1 class="error-code">504</h1>
+        <h2 class="error-title">Gateway Timeout</h2>
+        <p class="error-description">
+            <span class="skeleton-emoji">💀</span> Still waiting... and waiting... and waiting...<br>
+            The server is taking so long, we've turned into skeletons.
+        </p>
+
+        <div class="waiting-dots">
+            <span class="dot">•</span>
+            <span class="dot">•</span>
+            <span class="dot">•</span>
+        </div>
+
+        <div class="error-actions">
+            <a href="/" class="error-btn error-btn-primary">
+                🏠 Give Up &amp; Go Home
+            </a>
+            <a href="javascript:location.reload()" class="error-btn error-btn-secondary">
+                ⏰ Try Again (Optimistically)
+            </a>
+        </div>
+
+        <div class="timeout-counter">
+            <div class="counter-label">Time spent waiting for this page:</div>
+            <div class="counter-time" id="wait-time">∞ seconds</div>
+        </div>
+    </div>
+</section>
+
+<script>
+    (function() {
+        var seconds = 0;
+        var counter = document.getElementById('wait-time');
+        if (counter) {
+            setInterval(function() {
+                seconds++;
+                if (seconds < 60) {
+                    counter.textContent = seconds + ' second' + (seconds === 1 ? '' : 's');
+                } else {
+                    var mins = Math.floor(seconds / 60);
+                    var secs = seconds % 60;
+                    counter.textContent = mins + 'm ' + secs + 's (dedicated!)';
+                }
+            }, 1000);
+        }
+    })();
+</script>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,298 @@
+@page "/snippets"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ISnippetService SnippetService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Snippets — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Snippets</h1>
+    <a href="snippets/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New snippet</a>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") py-2">
+        <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+    </div>
+}
+
+@if (allSnippets is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (allSnippets.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-braces display-4 d-block mb-2"></i>
+            No snippets yet. Create reusable content blocks for the editor.
+        </div>
+    </div>
+}
+else
+{
+    <!-- Search -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col">
+                    <label class="form-label mb-0 small text-muted">Search</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search by name…"
+                           @bind="searchQuery" @bind:after="ApplyFilter" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions -->
+    @if (selectedIds.Count > 0)
+    {
+        <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+            <strong>@selectedIds.Count selected</strong>
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+                <i class="bi bi-trash-fill me-1"></i>Delete
+            </button>
+            <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+        </div>
+    }
+
+    <!-- Delete Confirmation Modal -->
+    @if (showDeleteConfirm)
+    {
+        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                        <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> snippet(s)? This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                        <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                            <i class="bi bi-trash-fill me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("name")'>
+                            Name
+                            @if (sortColumn == "name") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("usage")'>
+                            Used in
+                            @if (sortColumn == "usage") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("created")'>
+                            Created
+                            @if (sortColumn == "created") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("updated")'>
+                            Updated
+                            @if (sortColumn == "updated") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var snippet in filtered)
+                    {
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(snippet.Id)"
+                                       @onchange="() => ToggleSelection(snippet.Id)" />
+                            </td>
+                            <td>
+                                <a href="snippets/@snippet.Id/edit" class="fw-medium text-decoration-none text-body">
+                                    @snippet.Name
+                                </a>
+                            </td>
+                            <td class="small">
+                                @{
+                                    var usage = usageCounts.TryGetValue(snippet.Id, out var u) ? u : 0;
+                                }
+                                @if (usage == 0)
+                                {
+                                    <span class="text-muted">Unused</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary-subtle text-body-secondary">
+                                        @usage post@(usage == 1 ? "" : "s")
+                                    </span>
+                                }
+                            </td>
+                            <td class="small text-muted">@snippet.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td class="small text-muted">@(snippet.UpdatedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                            <td>
+                                <div class="d-flex justify-content-end gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => CopySnippetAsync(snippet)"
+                                            disabled="@string.IsNullOrWhiteSpace(snippet.Lexical)">
+                                        <i class="bi bi-clipboard me-1"></i>Copy
+                                    </button>
+                                    <a href="snippets/@snippet.Id/edit" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-pencil me-1"></i>Edit
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filtered.Count snippet(s)</small>
+    </div>
+}
+
+@code {
+    private List<Snippet>? allSnippets;
+    private List<Snippet> filtered = [];
+    private Dictionary<string, int> usageCounts = [];
+
+    private string searchQuery = "";
+    private string sortColumn = "name";
+    private bool sortAscending = true;
+
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+    private string? statusMessage;
+    private bool isError;
+
+    private bool allSelected => filtered.Count > 0
+        && filtered.All(s => selectedIds.Contains(s.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSnippetsAsync();
+    }
+
+    private async Task LoadSnippetsAsync()
+    {
+        allSnippets = await SnippetService.GetAllAsync();
+        usageCounts = await SnippetService.GetUsageCountsAsync();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (allSnippets is null) return;
+
+        var result = allSnippets.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            result = result.Where(s => s.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        result = sortColumn switch
+        {
+            "created" => sortAscending
+                ? result.OrderBy(s => s.CreatedAt)
+                : result.OrderByDescending(s => s.CreatedAt),
+            "updated" => sortAscending
+                ? result.OrderBy(s => s.UpdatedAt)
+                : result.OrderByDescending(s => s.UpdatedAt),
+            "usage" => sortAscending
+                ? result.OrderBy(s => usageCounts.TryGetValue(s.Id, out var u) ? u : 0)
+                : result.OrderByDescending(s => usageCounts.TryGetValue(s.Id, out var u) ? u : 0),
+            _ => sortAscending
+                ? result.OrderBy(s => s.Name)
+                : result.OrderByDescending(s => s.Name),
+        };
+
+        filtered = result.ToList();
+        selectedIds.Clear();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column == "name";
+        }
+        ApplyFilter();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. filtered.Select(s => s.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        foreach (var id in selectedIds)
+            await SnippetService.DeleteAsync(id);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadSnippetsAsync();
+    }
+
+    private async Task CopySnippetAsync(Snippet snippet)
+    {
+        if (string.IsNullOrWhiteSpace(snippet.Lexical))
+        {
+            statusMessage = $"{snippet.Name} does not have Lexical JSON to copy.";
+            isError = true;
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("copyTextToClipboard", snippet.Lexical);
+            statusMessage = $"Copied Lexical JSON for {snippet.Name}.";
+            isError = false;
+        }
+        catch (JSException)
+        {
+            statusMessage = "Clipboard access failed.";
+            isError = true;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

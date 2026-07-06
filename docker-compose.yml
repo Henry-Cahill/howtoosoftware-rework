@@ -1,0 +1,51 @@
+# HowToSoftware — Docker Compose
+# ASP.NET Core 10 Web + Blazor Admin
+# TLS is terminated by the edge Caddy proxy on <edge-proxy-ip>
+# Uses external SQL Server via DB_HOST env var
+
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    container_name: hts-web
+    ports:
+      - "80:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__DefaultConnection: "Data Source=${DB_HOST};Database=Website_HowTooSoftwareDb;User ID=User_WebsiteHowTooSoftware;Password=${DB_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+      Mail__MailgunDomain: "${MAILGUN_DOMAIN}"
+      Mail__MailgunApiKey: "${MAILGUN_API_KEY}"
+      Mail__SmtpUsername: "${MAILGUN_SMTP_USERNAME:-}"
+      Site__Url: "${SITE_URL}"
+      Site__Title: "howtosoftware"
+      GeoIp__DatabasePath: "/app/geoip/dbip-country-lite.mmdb"
+    volumes:
+      - hts-content:/app/wwwroot/content
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.admin
+    container_name: hts-admin
+    ports:
+      - "5001:5001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001
+      ConnectionStrings__DefaultConnection: "Data Source=${DB_HOST};Database=Website_HowTooSoftwareDb;User ID=User_WebsiteHowTooSoftware;Password=${DB_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+      Mail__MailgunDomain: "${MAILGUN_DOMAIN}"
+      Mail__MailgunApiKey: "${MAILGUN_API_KEY}"
+      Mail__SmtpUsername: "${MAILGUN_SMTP_USERNAME:-}"
+      Site__Url: "${SITE_URL}"
+    volumes:
+      - hts-content:/app/wwwroot/content
+      - hts-admin-keys:/app/keys
+    restart: unless-stopped
+
+volumes:
+  hts-content:
+  hts-admin-keys:

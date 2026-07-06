@@ -1,0 +1,155 @@
+{{!< default}}
+
+{{!-- 502 Bad Gateway - Servers miscommunicating --}}
+
+<style>
+    .error-page {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #fffaf0 0%, #feebc8 100%);
+    }
+    
+    [data-theme="dark"] .error-page {
+        background: linear-gradient(135deg, #1a1a2e 0%, #3d2f1f 100%);
+    }
+    
+    .error-container { max-width: 600px; }
+    
+    .error-gif {
+        width: 100%;
+        max-width: 380px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+    
+    .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .error-btn-primary {
+        background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
+        color: white;
+    }
+    
+    .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(221, 107, 32, 0.4);
+        color: white;
+    }
+    
+    .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+    
+    .chat-bubble {
+        margin-top: 2rem;
+        background: white;
+        border-radius: 16px;
+        padding: 1rem 1.5rem;
+        position: relative;
+        display: inline-block;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .chat-bubble::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-bottom: 10px solid white;
+    }
+    
+    .chat-servers {
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        text-align: left;
+    }
+    
+    .server-a { color: #dd6b20; }
+    .server-b { color: #2b6cb0; }
+</style>
+
+<section class="error-page outer">
+    <div class="error-container inner">
+        {{!-- Two people miscommunicating/confused --}}
+        <img 
+            src="https://media.giphy.com/media/l41lUJ1YoZB1lHVPG/giphy.gif" 
+            alt="Miscommunication - Bad Gateway" 
+            class="error-gif"
+        />
+        
+        <h1 class="error-code">502</h1>
+        <h2 class="error-title">Bad Gateway</h2>
+        <p class="error-description">
+            Our servers are having a communication breakdown. 📡<br>
+            They're basically texting each other "new phone who dis?"
+        </p>
+        
+        <div class="error-actions">
+            <a href="{{@site.url}}" class="error-btn error-btn-primary">
+                🏠 Go Home
+            </a>
+            <a href="javascript:location.reload()" class="error-btn error-btn-secondary">
+                🔄 Reconnect
+            </a>
+        </div>
+        
+        <div class="chat-bubble">
+            <div class="chat-servers">
+                <span class="server-a">Server A:</span> Hey, got a request for you<br>
+                <span class="server-b">Server B:</span> ¿Qué?<br>
+                <span class="server-a">Server A:</span> THE REQUEST<br>
+                <span class="server-b">Server B:</span> 🤷‍♂️
+            </div>
+        </div>
+    </div>
+</section>

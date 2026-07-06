@@ -1,0 +1,1309 @@
+@page "/posts/new"
+@page "/posts/{PostId}/edit"
+@using System.Security.Claims
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using HowToSoftware.Core.Services
+@attribute [Authorize(Roles = "Owner,Administrator,Editor,Author,Contributor")]
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+@inject IContentService ContentService
+@inject IPostRepository PostRepository
+@inject ITagRepository TagRepository
+@inject IImageStorageService ImageStorage
+@inject ILexicalRenderer LexicalRenderer
+@inject ISlugGenerator SlugGenerator
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>@(IsNew ? "New Post" : "Edit Post") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="posts" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Posts
+        </a>
+        @if (!IsNew && post is not null)
+        {
+            <span class="badge @StatusBadgeClass(post.Status)">@post.Status</span>
+        }
+        @if (isDirty)
+        {
+            <span class="text-muted small fst-italic">Unsaved changes</span>
+        }
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="text-success small"><i class="bi bi-check-circle me-1"></i>@statusMessage</span>
+        }
+        @if (lastAutosaveAt.HasValue)
+        {
+            <span class="text-muted small"><i class="bi bi-cloud-check me-1"></i>Last saved at @lastAutosaveAt.Value.ToLocalTime().ToString("h:mm tt")</span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-secondary" @onclick="PreviewAsync" disabled="@saving">
+            <i class="bi bi-eye me-1"></i>Preview
+        </button>
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-secondary" @onclick="DuplicateAsync" disabled="@saving">
+                <i class="bi bi-copy me-1"></i>Duplicate
+            </button>
+        }
+        <button class="btn btn-sm btn-outline-secondary" @onclick="() => showSettings = !showSettings">
+            <i class="bi bi-gear me-1"></i>Settings
+        </button>
+        @if (IsNew || post?.Status is "draft" or "scheduled")
+        {
+            <button class="btn btn-sm btn-secondary" @onclick="SaveDraftAsync" disabled="@saving">
+                @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                Save draft
+            </button>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-primary" @onclick="PublishAsync" disabled="@saving">
+                    <i class="bi bi-send me-1"></i>Publish
+                </button>
+                <button class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split"
+                        data-bs-toggle="dropdown" disabled="@saving">
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <button class="dropdown-item" @onclick="() => showSchedule = true">
+                            <i class="bi bi-clock me-1"></i>Schedule…
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        }
+        else if (post?.Status == "published")
+        {
+            <button class="btn btn-sm btn-primary" @onclick="UpdateAsync" disabled="@saving">
+                @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <i class="bi bi-check-lg me-1"></i>Update
+            </button>
+            <button class="btn btn-sm btn-outline-warning" @onclick="UnpublishAsync" disabled="@saving">
+                Unpublish
+            </button>
+        }
+    </div>
+</div>
+
+@if (showRecoveryBanner)
+{
+    <div class="alert alert-info alert-dismissible py-2 mb-2 d-flex align-items-center" role="alert">
+        <i class="bi bi-clock-history me-2"></i>
+        <span>This draft was recovered from an autosave at @(lastAutosaveAt?.ToLocalTime().ToString("MMM d, h:mm tt") ?? "recently").</span>
+        <button type="button" class="btn-close py-2" @onclick="() => showRecoveryBanner = false"></button>
+    </div>
+}
+
+<div class="editor-layout">
+    <!-- Main Editor -->
+    <div class="editor-main">
+        <!-- Feature Image -->
+        <div class="feature-image-area mb-3">
+            @if (!string.IsNullOrEmpty(featureImage))
+            {
+                <div class="feature-image-preview">
+                    <img src="@featureImage" alt="Feature image" />
+                    <button class="btn btn-sm btn-danger feature-image-remove" @onclick="RemoveFeatureImage">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            }
+            else
+            {
+                <label class="feature-image-upload">
+                    <InputFile OnChange="UploadFeatureImageAsync" accept="image/*" />
+                    <i class="bi bi-image me-2"></i>Add feature image
+                </label>
+            }
+        </div>
+
+        <!-- Title -->
+        <input type="text" class="editor-title" placeholder="Post title…" @bind="title" @bind:event="oninput"
+               @bind:after="MarkDirty" />
+
+        <!-- Lexical Editor -->
+        <div @ref="editorWrapperRef" class="editor-wrapper"></div>
+
+        <!-- Word Count / Reading Time Footer -->
+        <div class="editor-footer">
+            <span><i class="bi bi-pencil me-1"></i>@wordCount words</span>
+            <span><i class="bi bi-fonts me-1"></i>@charCount chars</span>
+            <span><i class="bi bi-clock me-1"></i>@readingTimeMinutes min read</span>
+        </div>
+    </div>
+
+    <!-- Settings Sidebar -->
+    @if (showSettings)
+    {
+        <div class="editor-sidebar">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0">Post settings</h6>
+                <button class="btn btn-sm btn-link text-muted p-0" @onclick="() => showSettings = false">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <!-- Slug -->
+            <div class="mb-3">
+                <label class="form-label small">Post URL</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">/</span>
+                    <input type="text" class="form-control" @bind="slug" placeholder="auto-generated" />
+                </div>
+            </div>
+
+            <!-- Tags -->
+            <div class="mb-3">
+                <label class="form-label small">Tags</label>
+                <div class="tag-tokenized-input">
+                    <div class="tag-pills-area">
+                        @foreach (var tagId in selectedTagIds)
+                        {
+                            var tag = allTags.FirstOrDefault(t => t.Id == tagId);
+                            if (tag is not null)
+                            {
+                                <span class="tag-pill" @key="tag.Id">
+                                    @tag.Name
+                                    <button type="button" class="tag-pill-remove" @onclick="() => RemoveTag(tag.Id)">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </span>
+                            }
+                        }
+                        <input type="text" class="tag-input" placeholder="@(selectedTagIds.Count == 0 ? "Add tags…" : "")" 
+                               @bind="tagSearchText" @bind:event="oninput" @bind:after="OnTagSearchChanged"
+                               @onkeydown="OnTagInputKeyDown" @onfocus="() => showTagDropdown = true"
+                               @onblur="OnTagInputBlur" />
+                    </div>
+                    @if (showTagDropdown && filteredTags.Count > 0)
+                    {
+                        <div class="tag-dropdown">
+                            @foreach (var ft in filteredTags)
+                            {
+                                <button type="button" class="tag-dropdown-item @(ft.Id == highlightedTagId ? "highlighted" : "")"
+                                        @onmousedown="() => SelectTag(ft)" @onmousedown:preventDefault>
+                                    @ft.Name
+                                </button>
+                            }
+                        </div>
+                    }
+                    else if (showTagDropdown && !string.IsNullOrWhiteSpace(tagSearchText) && filteredTags.Count == 0)
+                    {
+                        <div class="tag-dropdown">
+                            <button type="button" class="tag-dropdown-item create-tag"
+                                    @onmousedown="CreateAndSelectTagAsync" @onmousedown:preventDefault>
+                                <i class="bi bi-plus-circle me-1"></i>Create "@tagSearchText.Trim()"
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Excerpt -->
+            <div class="mb-3">
+                <label class="form-label small">Excerpt</label>
+                <textarea class="form-control form-control-sm" rows="3" @bind="excerpt"
+                          placeholder="Custom excerpt…" data-gramm="false" data-gramm_editor="false"
+                          data-enable-grammarly="false"></textarea>
+            </div>
+
+            <!-- Visibility -->
+            <div class="mb-3">
+                <label class="form-label small">Post access</label>
+                <select class="form-select form-select-sm" @bind="visibility">
+                    <option value="public">Public</option>
+                    <option value="members">Members only</option>
+                    <option value="paid">Paid members only</option>
+                </select>
+            </div>
+
+            <!-- Featured -->
+            <div class="mb-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" @bind="featured" id="featuredSwitch" />
+                    <label class="form-check-label small" for="featuredSwitch">Feature this post</label>
+                </div>
+            </div>
+
+            <!-- SEO Section -->
+            <div class="border-top pt-3 mt-3">
+                <button class="btn btn-sm btn-link text-muted p-0 mb-2 text-decoration-none"
+                        @onclick="() => showSeo = !showSeo">
+                    <i class="bi @(showSeo ? "bi-chevron-down" : "bi-chevron-right") me-1"></i>
+                    SEO settings
+                </button>
+
+                @if (showSeo)
+                {
+                    <div class="mb-2">
+                        <label class="form-label small">Meta title</label>
+                        <input type="text" class="form-control form-control-sm" @bind="metaTitle"
+                               placeholder="@title" />
+                        <div class="form-text">Recommended: 60 characters. @(metaTitle?.Length ?? 0)/60</div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Meta description</label>
+                        <textarea class="form-control form-control-sm" rows="2" @bind="metaDescription"
+                                  placeholder="Search engine description…" data-gramm="false"
+                                  data-gramm_editor="false" data-enable-grammarly="false"></textarea>
+                        <div class="form-text">Recommended: 160 characters. @(metaDescription?.Length ?? 0)/160</div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Canonical URL</label>
+                        <input type="text" class="form-control form-control-sm" @bind="canonicalUrl"
+                               placeholder="https://..." />
+                    </div>
+
+                    <!-- OG -->
+                    <div class="border-top pt-2 mt-2">
+                        <small class="text-muted fw-semibold">Facebook card</small>
+                    </div>
+                    <div class="mb-2 mt-1">
+                        <label class="form-label small">OG title</label>
+                        <input type="text" class="form-control form-control-sm" @bind="ogTitle" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">OG description</label>
+                        <textarea class="form-control form-control-sm" rows="2" @bind="ogDescription"
+                                  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea>
+                    </div>
+
+                    <!-- Twitter -->
+                    <div class="border-top pt-2 mt-2">
+                        <small class="text-muted fw-semibold">X (Twitter) card</small>
+                    </div>
+                    <div class="mb-2 mt-1">
+                        <label class="form-label small">Twitter title</label>
+                        <input type="text" class="form-control form-control-sm" @bind="twitterTitle" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Twitter description</label>
+                        <textarea class="form-control form-control-sm" rows="2" @bind="twitterDescription"
+                                  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea>
+                    </div>
+                }
+            </div>
+
+            <!-- Code Injection Section -->
+            <div class="border-top pt-3 mt-3">
+                <button class="btn btn-sm btn-link text-muted p-0 mb-2 text-decoration-none"
+                        @onclick="() => showCodeInjection = !showCodeInjection">
+                    <i class="bi @(showCodeInjection ? "bi-chevron-down" : "bi-chevron-right") me-1"></i>
+                    Code injection
+                </button>
+
+                @if (showCodeInjection)
+                {
+                    <div class="mb-2">
+                        <label class="form-label small">Post header</label>
+                        <textarea class="form-control form-control-sm font-monospace" rows="3"
+                                  @bind="codeinjectionHead" placeholder="&lt;style&gt;...&lt;/style&gt;"
+                                  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Post footer</label>
+                        <textarea class="form-control form-control-sm font-monospace" rows="3"
+                                  @bind="codeinjectionFoot" placeholder="&lt;script&gt;...&lt;/script&gt;"
+                                  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea>
+                    </div>
+                }
+            </div>
+
+            <!-- Revision History Section -->
+            @if (!IsNew)
+            {
+                <div class="border-top pt-3 mt-3">
+                    <button class="btn btn-sm btn-link text-muted p-0 mb-2 text-decoration-none"
+                            @onclick="ToggleRevisionHistoryAsync">
+                        <i class="bi @(showRevisionHistory ? "bi-chevron-down" : "bi-chevron-right") me-1"></i>
+                        Revision history
+                        @if (revisions is not null)
+                        {
+                            <span class="badge bg-secondary ms-1">@revisions.Count</span>
+                        }
+                    </button>
+
+                    @if (showRevisionHistory)
+                    {
+                        @if (loadingRevisions)
+                        {
+                            <div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading…</div>
+                        }
+                        else if (revisions is { Count: > 0 })
+                        {
+                            <div class="revision-list">
+                                @foreach (var rev in revisions)
+                                {
+                                    <div class="revision-item @(selectedRevisionId == rev.Id ? "active" : "")">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="revision-info">
+                                                <div class="revision-time small">
+                                                    @rev.CreatedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(rev.Title))
+                                                {
+                                                    <div class="revision-title small text-truncate" title="@rev.Title">@rev.Title</div>
+                                                }
+                                                <div class="revision-meta">
+                                                    <span class="badge revision-reason-badge @RevisionReasonClass(rev.Reason)">@(rev.Reason ?? "edit")</span>
+                                                    @if (rev.Author is not null)
+                                                    {
+                                                        <span class="text-muted">@rev.Author.Name</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div class="revision-actions">
+                                                <button class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                        title="View this revision"
+                                                        @onclick="() => ViewRevisionAsync(rev)">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-warning py-0 px-1"
+                                                        title="Restore this revision"
+                                                        @onclick="() => ConfirmRestoreRevision(rev)"
+                                                        disabled="@saving">
+                                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-muted small">No revisions yet.</div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Schedule Modal -->
+@if (showSchedule)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Schedule post</h5>
+                    <button type="button" class="btn-close" @onclick="() => showSchedule = false"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label small">Publish date &amp; time (UTC)</label>
+                    <input type="datetime-local" class="form-control" @bind="scheduledDate" />
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" @onclick="() => showSchedule = false">Cancel</button>
+                    <button class="btn btn-primary btn-sm" @onclick="ScheduleAsync" disabled="@saving">
+                        <i class="bi bi-clock me-1"></i>Schedule
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Preview Modal -->
+@if (showPreview)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Preview</h5>
+                    <button type="button" class="btn-close" @onclick="() => showPreview = false"></button>
+                </div>
+                <div class="modal-body">
+                    <article class="preview-article">
+                        <h1>@title</h1>
+                        @if (!string.IsNullOrEmpty(featureImage))
+                        {
+                            <img src="@featureImage" alt="Feature image" style="max-width:100%;border-radius:6px;margin:1rem 0" />
+                        }
+                        @((MarkupString)(previewHtml ?? "<p class='text-muted'>No content to preview.</p>"))
+                    </article>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showPreview = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Revision Preview Modal -->
+@if (showRevisionPreview && selectedRevision is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        Revision — @selectedRevision.CreatedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")
+                        <span class="badge bg-secondary ms-2">@(selectedRevision.Reason ?? "edit")</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showRevisionPreview = false"></button>
+                </div>
+                <div class="modal-body">
+                    <article class="preview-article">
+                        <h1>@(selectedRevision.Title ?? "(no title)")</h1>
+                        @if (!string.IsNullOrEmpty(selectedRevision.FeatureImage))
+                        {
+                            <img src="@selectedRevision.FeatureImage" alt="Feature image" style="max-width:100%;border-radius:6px;margin:1rem 0" />
+                        }
+                        @((MarkupString)(revisionPreviewHtml ?? "<p class='text-muted'>No content in this revision.</p>"))
+                    </article>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showRevisionPreview = false">Close</button>
+                    <button class="btn btn-warning" @onclick="() => ConfirmRestoreRevision(selectedRevision)" disabled="@saving">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Restore this revision
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Restore Confirmation Modal -->
+@if (showRestoreConfirm && revisionToRestore is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Restore revision?</h5>
+                    <button type="button" class="btn-close" @onclick="() => showRestoreConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-1">This will replace the current content with the revision from:</p>
+                    <strong>@revisionToRestore.CreatedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</strong>
+                    <p class="text-muted small mt-2 mb-0">A new revision will be saved with the current content before restoring.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" @onclick="() => showRestoreConfirm = false">Cancel</button>
+                    <button class="btn btn-warning btn-sm" @onclick="RestoreRevisionAsync" disabled="@saving">
+                        @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? PostId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
+    private bool IsNew => string.IsNullOrEmpty(PostId);
+
+    // Editor state
+    private Post? post;
+    private string title = "";
+    private string slug = "";
+    private string? featureImage;
+    private string? excerpt;
+    private string visibility = "public";
+    private bool featured;
+    private List<string> selectedTagIds = [];
+    private string? metaTitle;
+    private string? metaDescription;
+    private string? canonicalUrl;
+    private string? ogTitle;
+    private string? ogDescription;
+    private string? twitterTitle;
+    private string? twitterDescription;
+    private string? codeinjectionHead;
+    private string? codeinjectionFoot;
+
+    // UI state
+    private bool showSettings;
+    private bool showSeo;
+    private bool showCodeInjection;
+    private bool showSchedule;
+    private bool showPreview;
+    private bool saving;
+    private bool isDirty;
+    private int wordCount;
+    private int charCount;
+    private int readingTimeMinutes;
+    private string? statusMessage;
+    private string? previewHtml;
+    private DateTime scheduledDate = DateTime.UtcNow.AddDays(1);
+
+    // Autosave state
+    private Timer? autosaveTimer;
+    private DateTime? lastAutosaveAt;
+    private bool showRecoveryBanner;
+    private bool autosaving;
+
+    // Revision history state
+    private bool showRevisionHistory;
+    private bool loadingRevisions;
+    private List<PostRevision>? revisions;
+    private string? selectedRevisionId;
+    private PostRevision? selectedRevision;
+    private bool showRevisionPreview;
+    private string? revisionPreviewHtml;
+    private bool showRestoreConfirm;
+    private PostRevision? revisionToRestore;
+
+    // Tags
+    private List<Tag> allTags = [];
+    private string tagSearchText = "";
+    private bool showTagDropdown;
+    private List<Tag> filteredTags = [];
+    private string? highlightedTagId;
+
+    // JS interop
+    private ElementReference editorWrapperRef;
+    private IJSObjectReference? editorModule;
+    private DotNetObjectReference<PostEditor>? dotNetRef;
+    private bool contentLoaded;
+
+    // User
+    private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateTask;
+        userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        allTags = await TagRepository.GetAllAsync();
+        allTags = [.. allTags.OrderBy(t => t.Name)];
+
+        if (!IsNew)
+        {
+            post = await PostRepository.GetByIdAsync(PostId!);
+            if (post is null)
+            {
+                Navigation.NavigateTo("posts");
+                return;
+            }
+            LoadPostIntoForm(post);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            editorModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/lexical-editor.js");
+            await editorModule.InvokeVoidAsync("init", editorWrapperRef, dotNetRef);
+            await editorModule.InvokeVoidAsync("registerEditorShortcuts", dotNetRef);
+
+            // Try to load content (post may already be loaded or not yet)
+            await TryLoadEditorContentAsync();
+            await UpdateWordCountAsync();
+
+            // Check for autosave recovery
+            if (!IsNew && post is not null)
+            {
+                var revisions = await ContentService.GetRevisionsAsync(post.Id);
+                var latest = revisions.OrderByDescending(r => r.CreatedAt).FirstOrDefault();
+                if (latest?.Reason == "autosave")
+                {
+                    showRecoveryBanner = true;
+                    lastAutosaveAt = latest.CreatedAt;
+                    StateHasChanged();
+                }
+            }
+
+            // Start autosave timer (60-second interval)
+            autosaveTimer = new Timer(AutosaveCallback, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+        }
+        else if (!contentLoaded)
+        {
+            // Post data arrived after editor init — load it now
+            await TryLoadEditorContentAsync();
+            await UpdateWordCountAsync();
+        }
+    }
+
+    private async Task TryLoadEditorContentAsync()
+    {
+        if (contentLoaded || editorModule is null || IsNew || post is null)
+            return;
+
+        contentLoaded = true;
+
+        // Prefer Lexical JSON; fall back to converting Mobiledoc server-side
+        var lexicalJson = post.Lexical
+            ?? MobiledocToLexicalConverter.Convert(post.Mobiledoc);
+
+        if (lexicalJson is not null)
+        {
+            await editorModule.InvokeVoidAsync("setContent", lexicalJson);
+        }
+        isDirty = false;
+    }
+
+    private void LoadPostIntoForm(Post p)
+    {
+        title = p.Title;
+        slug = p.Slug;
+        featureImage = p.FeatureImage;
+        excerpt = p.CustomExcerpt;
+        visibility = p.Visibility;
+        featured = p.Featured;
+        selectedTagIds = [.. p.PostsTags.OrderBy(pt => pt.SortOrder).Select(pt => pt.TagId)];
+        codeinjectionHead = p.CodeinjectionHead;
+        codeinjectionFoot = p.CodeinjectionFoot;
+        canonicalUrl = p.CanonicalUrl;
+
+        if (p.Meta is not null)
+        {
+            metaTitle = p.Meta.MetaTitle;
+            metaDescription = p.Meta.MetaDescription;
+            ogTitle = p.Meta.OgTitle;
+            ogDescription = p.Meta.OgDescription;
+            twitterTitle = p.Meta.TwitterTitle;
+            twitterDescription = p.Meta.TwitterDescription;
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEditorContentChanged()
+    {
+        isDirty = true;
+        await UpdateWordCountAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void OnSaveShortcut()
+    {
+        InvokeAsync(async () =>
+        {
+            if (saving) return;
+            if (post?.Status == "published")
+                await UpdateAsync();
+            else
+                await SaveDraftAsync();
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public void OnPublishShortcut()
+    {
+        InvokeAsync(async () =>
+        {
+            if (saving) return;
+            if (post?.Status == "published")
+                await UpdateAsync();
+            else
+                await PublishAsync();
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public void OnEscapeShortcut()
+    {
+        InvokeAsync(() =>
+        {
+            if (showSettings)
+            {
+                showSettings = false;
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void MarkDirty() => isDirty = true;
+
+    private void AutosaveCallback(object? state)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (!isDirty || saving || autosaving) return;
+
+            // Only autosave drafts and new posts, not published content
+            if (post?.Status == "published") return;
+
+            await AutosaveAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task AutosaveAsync()
+    {
+        autosaving = true;
+        try
+        {
+            var lexical = await GetEditorContent();
+
+            if (IsNew)
+            {
+                // Don't create empty posts
+                if (string.IsNullOrWhiteSpace(title) && string.IsNullOrEmpty(lexical)) return;
+                if (string.IsNullOrWhiteSpace(title)) title = "Untitled";
+
+                var request = new ContentCreateRequest
+                {
+                    Title = title,
+                    Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                    Lexical = lexical,
+                    Featured = featured,
+                    FeatureImage = featureImage,
+                    CustomExcerpt = excerpt,
+                    Visibility = visibility,
+                    CodeinjectionHead = codeinjectionHead,
+                    CodeinjectionFoot = codeinjectionFoot,
+                    CanonicalUrl = canonicalUrl,
+                    TagIds = selectedTagIds.Count > 0 ? [.. selectedTagIds] : null,
+                    Meta = BuildMeta(),
+                };
+                post = await ContentService.CreateAsync(request, userId);
+                isDirty = false;
+                lastAutosaveAt = DateTime.UtcNow;
+                Navigation.NavigateTo($"posts/{post.Id}/edit", replace: true);
+            }
+            else
+            {
+                var request = new ContentUpdateRequest
+                {
+                    Title = title,
+                    Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                    Lexical = lexical,
+                    Featured = featured,
+                    FeatureImage = featureImage,
+                    CustomExcerpt = excerpt,
+                    Visibility = visibility,
+                    CodeinjectionHead = codeinjectionHead,
+                    CodeinjectionFoot = codeinjectionFoot,
+                    CanonicalUrl = canonicalUrl,
+                    TagIds = [.. selectedTagIds],
+                    Meta = BuildMeta(),
+                    RevisionReason = "autosave",
+                };
+                post = await ContentService.UpdateAsync(PostId!, request, userId);
+                isDirty = false;
+                lastAutosaveAt = DateTime.UtcNow;
+            }
+        }
+        catch
+        {
+            // Silent failure for autosave — don't interrupt the user
+        }
+        finally
+        {
+            autosaving = false;
+        }
+    }
+
+    private async Task UpdateWordCountAsync()
+    {
+        if (editorModule is not null)
+        {
+            wordCount = await editorModule.InvokeAsync<int>("getWordCount");
+            charCount = await editorModule.InvokeAsync<int>("getCharCount");
+            readingTimeMinutes = Math.Max(1, (int)Math.Round(wordCount / 265.0));
+        }
+    }
+
+    private async Task<string?> GetEditorContent()
+    {
+        if (editorModule is null) return null;
+        return await editorModule.InvokeAsync<string?>("getContent");
+    }
+
+    private PostMetaRequest? BuildMeta()
+    {
+        if (string.IsNullOrWhiteSpace(metaTitle) && string.IsNullOrWhiteSpace(metaDescription)
+            && string.IsNullOrWhiteSpace(ogTitle) && string.IsNullOrWhiteSpace(ogDescription)
+            && string.IsNullOrWhiteSpace(twitterTitle) && string.IsNullOrWhiteSpace(twitterDescription)
+            && string.IsNullOrWhiteSpace(canonicalUrl))
+            return null;
+
+        return new PostMetaRequest
+        {
+            MetaTitle = metaTitle,
+            MetaDescription = metaDescription,
+            OgTitle = ogTitle,
+            OgDescription = ogDescription,
+            TwitterTitle = twitterTitle,
+            TwitterDescription = twitterDescription,
+        };
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            var lexical = await GetEditorContent();
+
+            if (IsNew)
+            {
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    title = "Untitled";
+                }
+
+                var request = new ContentCreateRequest
+                {
+                    Title = title,
+                    Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                    Lexical = lexical,
+                    Featured = featured,
+                    FeatureImage = featureImage,
+                    CustomExcerpt = excerpt,
+                    Visibility = visibility,
+                    CodeinjectionHead = codeinjectionHead,
+                    CodeinjectionFoot = codeinjectionFoot,
+                    CanonicalUrl = canonicalUrl,
+                    TagIds = selectedTagIds.Count > 0 ? [.. selectedTagIds] : null,
+                    Meta = BuildMeta(),
+                };
+                post = await ContentService.CreateAsync(request, userId);
+                isDirty = false;
+                statusMessage = "Draft saved";
+                lastAutosaveAt = null;
+                showRecoveryBanner = false;
+                Navigation.NavigateTo($"posts/{post.Id}/edit", replace: true);
+            }
+            else
+            {
+                var request = new ContentUpdateRequest
+                {
+                    Title = title,
+                    Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                    Lexical = lexical,
+                    Featured = featured,
+                    FeatureImage = featureImage,
+                    CustomExcerpt = excerpt,
+                    Visibility = visibility,
+                    CodeinjectionHead = codeinjectionHead,
+                    CodeinjectionFoot = codeinjectionFoot,
+                    CanonicalUrl = canonicalUrl,
+                    TagIds = [.. selectedTagIds],
+                    Meta = BuildMeta(),
+                };
+                post = await ContentService.UpdateAsync(PostId!, request, userId);
+                isDirty = false;
+                statusMessage = "Draft saved";
+                lastAutosaveAt = null;
+                showRecoveryBanner = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task PublishAsync()
+    {
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            // Save first
+            await SaveDraftAsync();
+            if (post is null) return;
+
+            // Then publish
+            post = await ContentService.PublishAsync(post.Id, userId);
+            isDirty = false;
+            statusMessage = "Published!";
+            lastAutosaveAt = null;
+            showRecoveryBanner = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task UpdateAsync()
+    {
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            var lexical = await GetEditorContent();
+            var request = new ContentUpdateRequest
+            {
+                Title = title,
+                Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
+                Lexical = lexical,
+                Featured = featured,
+                FeatureImage = featureImage,
+                CustomExcerpt = excerpt,
+                Visibility = visibility,
+                CodeinjectionHead = codeinjectionHead,
+                CodeinjectionFoot = codeinjectionFoot,
+                CanonicalUrl = canonicalUrl,
+                TagIds = [.. selectedTagIds],
+                Meta = BuildMeta(),
+            };
+            post = await ContentService.UpdateAsync(PostId!, request, userId);
+            isDirty = false;
+            statusMessage = "Updated!";
+            lastAutosaveAt = null;
+            showRecoveryBanner = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task UnpublishAsync()
+    {
+        saving = true;
+        try
+        {
+            post = await ContentService.UnpublishAsync(PostId!);
+            statusMessage = "Unpublished — now a draft";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DuplicateAsync()
+    {
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            var duplicate = await ContentService.DuplicateAsync(PostId!, userId);
+            Navigation.NavigateTo($"posts/{duplicate.Id}/edit");
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task ScheduleAsync()
+    {
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            // Save first
+            await SaveDraftAsync();
+            if (post is null) return;
+
+            // Then schedule
+            post = await ContentService.ScheduleAsync(post.Id, scheduledDate, userId);
+            showSchedule = false;
+            isDirty = false;
+            statusMessage = $"Scheduled for {scheduledDate:g} UTC";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task PreviewAsync()
+    {
+        var lexical = await GetEditorContent();
+        previewHtml = !string.IsNullOrEmpty(lexical) ? LexicalRenderer.Render(lexical) : null;
+        showPreview = true;
+    }
+
+    private async Task UploadFeatureImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB";
+            return;
+        }
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+            featureImage = result.Url;
+            isDirty = true;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Upload failed: {ex.Message}";
+        }
+    }
+
+    private void RemoveFeatureImage()
+    {
+        featureImage = null;
+        isDirty = true;
+    }
+
+    // ── Tag tokenized input ─────────────────────────────────────
+
+    private void OnTagSearchChanged()
+    {
+        var query = tagSearchText.Trim();
+        if (string.IsNullOrEmpty(query))
+        {
+            filteredTags = allTags
+                .Where(t => !selectedTagIds.Contains(t.Id))
+                .Take(10)
+                .ToList();
+        }
+        else
+        {
+            filteredTags = allTags
+                .Where(t => !selectedTagIds.Contains(t.Id)
+                    && t.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Take(10)
+                .ToList();
+        }
+        highlightedTagId = filteredTags.FirstOrDefault()?.Id;
+        showTagDropdown = true;
+    }
+
+    private void OnTagInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Backspace" && string.IsNullOrEmpty(tagSearchText) && selectedTagIds.Count > 0)
+        {
+            selectedTagIds.RemoveAt(selectedTagIds.Count - 1);
+            isDirty = true;
+        }
+        else if (e.Key == "Enter")
+        {
+            if (highlightedTagId is not null)
+            {
+                var tag = filteredTags.FirstOrDefault(t => t.Id == highlightedTagId);
+                if (tag is not null)
+                    SelectTag(tag);
+            }
+            else if (!string.IsNullOrWhiteSpace(tagSearchText) && filteredTags.Count == 0)
+            {
+                _ = InvokeAsync(CreateAndSelectTagAsync);
+            }
+        }
+        else if (e.Key == "ArrowDown" && filteredTags.Count > 0)
+        {
+            var idx = filteredTags.FindIndex(t => t.Id == highlightedTagId);
+            idx = Math.Min(idx + 1, filteredTags.Count - 1);
+            highlightedTagId = filteredTags[idx].Id;
+        }
+        else if (e.Key == "ArrowUp" && filteredTags.Count > 0)
+        {
+            var idx = filteredTags.FindIndex(t => t.Id == highlightedTagId);
+            idx = Math.Max(idx - 1, 0);
+            highlightedTagId = filteredTags[idx].Id;
+        }
+        else if (e.Key == "Escape")
+        {
+            showTagDropdown = false;
+        }
+    }
+
+    private void OnTagInputBlur()
+    {
+        // Delay to allow mousedown on dropdown items to fire first
+        _ = InvokeAsync(async () =>
+        {
+            await Task.Delay(150);
+            showTagDropdown = false;
+            StateHasChanged();
+        });
+    }
+
+    private void SelectTag(Tag tag)
+    {
+        if (!selectedTagIds.Contains(tag.Id))
+        {
+            selectedTagIds.Add(tag.Id);
+            isDirty = true;
+        }
+        tagSearchText = "";
+        filteredTags = [];
+        showTagDropdown = false;
+    }
+
+    private void RemoveTag(string tagId)
+    {
+        selectedTagIds.Remove(tagId);
+        isDirty = true;
+    }
+
+    private async Task CreateAndSelectTagAsync()
+    {
+        var name = tagSearchText.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var slug = await SlugGenerator.GenerateUniqueSlugAsync(
+            name,
+            async s => await TagRepository.GetBySlugAsync(s) is not null);
+
+        var tag = new Tag
+        {
+            Id = GenerateTagId(),
+            Name = name,
+            Slug = slug,
+            Visibility = "public",
+            CreatedAt = DateTime.UtcNow,
+        };
+        await TagRepository.AddAsync(tag);
+        allTags.Add(tag);
+        allTags = [.. allTags.OrderBy(t => t.Name)];
+        SelectTag(tag);
+    }
+
+    private static string GenerateTagId()
+    {
+        Span<byte> bytes = stackalloc byte[12];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static string StatusBadgeClass(string status) => status switch
+    {
+        "published" => "bg-success",
+        "draft" => "bg-secondary",
+        "scheduled" => "bg-info text-dark",
+        _ => "bg-secondary",
+    };
+
+    private static string RevisionReasonClass(string? reason) => reason switch
+    {
+        "initial" => "bg-info",
+        "published" => "bg-success",
+        "scheduled" => "bg-info",
+        "restored" => "bg-warning text-dark",
+        "autosave" => "bg-secondary",
+        _ => "bg-secondary",
+    };
+
+    private async Task ToggleRevisionHistoryAsync()
+    {
+        showRevisionHistory = !showRevisionHistory;
+        if (showRevisionHistory && revisions is null && !IsNew)
+        {
+            await LoadRevisionsAsync();
+        }
+    }
+
+    private async Task LoadRevisionsAsync()
+    {
+        loadingRevisions = true;
+        try
+        {
+            revisions = await ContentService.GetRevisionsAsync(PostId!);
+        }
+        catch
+        {
+            revisions = [];
+        }
+        finally
+        {
+            loadingRevisions = false;
+        }
+    }
+
+    private async Task ViewRevisionAsync(PostRevision rev)
+    {
+        selectedRevision = rev;
+        selectedRevisionId = rev.Id;
+        revisionPreviewHtml = !string.IsNullOrEmpty(rev.Lexical) ? LexicalRenderer.Render(rev.Lexical) : null;
+        showRevisionPreview = true;
+        await Task.CompletedTask;
+    }
+
+    private void ConfirmRestoreRevision(PostRevision rev)
+    {
+        revisionToRestore = rev;
+        showRestoreConfirm = true;
+    }
+
+    private async Task RestoreRevisionAsync()
+    {
+        if (revisionToRestore is null || IsNew) return;
+        saving = true;
+        statusMessage = null;
+        showRestoreConfirm = false;
+        showRevisionPreview = false;
+        try
+        {
+            post = await ContentService.RestoreRevisionAsync(PostId!, revisionToRestore.Id, userId);
+            LoadPostIntoForm(post);
+
+            // Reload editor content with restored Lexical
+            if (editorModule is not null && post.Lexical is not null)
+            {
+                await editorModule.InvokeVoidAsync("destroy");
+                await editorModule.InvokeVoidAsync("init", editorWrapperRef, dotNetRef, post.Lexical);
+            }
+
+            isDirty = false;
+            statusMessage = "Revision restored";
+            revisions = null; // Force reload on next open
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+            revisionToRestore = null;
+            selectedRevisionId = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (autosaveTimer is not null)
+        {
+            await autosaveTimer.DisposeAsync();
+        }
+        if (editorModule is not null)
+        {
+            try { await editorModule.InvokeVoidAsync("destroy"); } catch { }
+            await editorModule.DisposeAsync();
+        }
+        dotNetRef?.Dispose();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

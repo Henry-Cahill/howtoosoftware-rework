@@ -1,0 +1,446 @@
+@page "/redirects"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IRedirectService RedirectService
+@rendermode InteractiveServer
+
+<PageTitle>Redirects — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Redirects</h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="OpenImportModal">
+            <i class="bi bi-upload me-1"></i>Bulk import
+        </button>
+        <a href="redirects/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New redirect</a>
+    </div>
+</div>
+
+@if (importStatusMessage is not null)
+{
+    <div class="alert @(importIsError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+        @importStatusMessage
+        <button type="button" class="btn-close" @onclick="() => importStatusMessage = null"></button>
+    </div>
+}
+
+@if (importResult is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="bi bi-clipboard-check me-2"></i>Import results</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-2">
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-4 fw-bold text-success">@importResult.Imported</div>
+                        <div class="text-muted small">Imported</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-4 fw-bold text-info">@importResult.Updated</div>
+                        <div class="text-muted small">Updated</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-4 fw-bold text-warning">@importResult.Skipped</div>
+                        <div class="text-muted small">Skipped</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-4 fw-bold text-danger">@importResult.Errors.Count</div>
+                        <div class="text-muted small">Errors</div>
+                    </div>
+                </div>
+            </div>
+            @if (importResult.Errors.Count > 0)
+            {
+                <details>
+                    <summary class="text-danger small">Show errors</summary>
+                    <ul class="small mb-0 mt-2">
+                        @foreach (var err in importResult.Errors)
+                        {
+                            <li>@err</li>
+                        }
+                    </ul>
+                </details>
+            }
+        </div>
+    </div>
+}
+
+@if (allRedirects is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (allRedirects.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-signpost-split display-4 d-block mb-2"></i>
+            No redirects yet. Create custom URL redirects (301/302).
+        </div>
+    </div>
+}
+else
+{
+    <!-- Search -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col">
+                    <label class="form-label mb-0 small text-muted">Search</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search by URL…"
+                           @bind="searchQuery" @bind:after="ApplyFilter" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions -->
+    @if (selectedIds.Count > 0)
+    {
+        <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+            <strong>@selectedIds.Count selected</strong>
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+                <i class="bi bi-trash-fill me-1"></i>Delete
+            </button>
+            <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+        </div>
+    }
+
+    <!-- Delete Confirmation Modal -->
+    @if (showDeleteConfirm)
+    {
+        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                        <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> redirect(s)? This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                        <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                            <i class="bi bi-trash-fill me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("from")'>
+                            From
+                            @if (sortColumn == "from") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("to")'>
+                            To
+                            @if (sortColumn == "to") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("created")'>
+                            Created
+                            @if (sortColumn == "created") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header text-end" @onclick='() => ToggleSort("hits")'>
+                            Hits
+                            @if (sortColumn == "hits") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var redirect in filtered)
+                    {
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(redirect.Id)"
+                                       @onchange="() => ToggleSelection(redirect.Id)" />
+                            </td>
+                            <td>
+                                <a href="redirects/@redirect.Id/edit" class="fw-medium text-decoration-none text-body font-monospace small">
+                                    @redirect.From
+                                </a>
+                                @if (redirect.IsRegex)
+                                {
+                                    <span class="badge bg-secondary ms-2" title="Regex pattern">
+                                        <i class="bi bi-regex"></i> regex
+                                    </span>
+                                }
+                            </td>
+                            <td class="font-monospace small text-muted">@redirect.To</td>
+                            <td class="small text-muted">@redirect.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td class="small text-end font-monospace">@redirect.HitCount.ToString("N0")</td>
+                            <td>
+                                <a href="redirects/@redirect.Id/edit" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-pencil me-1"></i>Edit
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filtered.Count redirect(s)</small>
+    </div>
+}
+
+<!-- Bulk Import Modal -->
+@if (showImportModal)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Bulk import redirects</h5>
+                    <button type="button" class="btn-close" @onclick="CloseImportModal" disabled="@importing"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        Import a CSV with two columns: <code>from_url</code> and <code>to_url</code>.
+                        A header row is optional. Existing redirects (matched by <code>from_url</code>) are
+                        skipped unless you enable overwrite below.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Upload CSV file</label>
+                        <InputFile OnChange="OnImportFileSelected" accept=".csv,text/csv,text/plain" class="form-control form-control-sm" />
+                        @if (importFileName is not null)
+                        {
+                            <div class="form-text">Selected: @importFileName</div>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">…or paste CSV content</label>
+                        <textarea class="form-control font-monospace small" rows="8"
+                                  placeholder="from_url,to_url&#10;/old-post/,/new-post/&#10;/legacy/about,/about/"
+                                  @bind="importCsvText"></textarea>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="overwriteCheck" @bind="importOverwrite" />
+                        <label class="form-check-label small" for="overwriteCheck">
+                            Overwrite existing redirects with the same <code>from_url</code>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseImportModal" disabled="@importing">Cancel</button>
+                    <button class="btn btn-primary" @onclick="RunImportAsync"
+                            disabled="@(importing || string.IsNullOrWhiteSpace(importCsvText))">
+                        @if (importing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-upload me-1"></i>Import
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Redirect>? allRedirects;
+    private List<Redirect> filtered = [];
+
+    private string searchQuery = "";
+    private string sortColumn = "from";
+    private bool sortAscending = true;
+
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+
+    // Bulk import state
+    private bool showImportModal;
+    private string importCsvText = "";
+    private string? importFileName;
+    private bool importOverwrite;
+    private bool importing;
+    private string? importStatusMessage;
+    private bool importIsError;
+    private BulkImportRedirectsResult? importResult;
+
+    private bool allSelected => filtered.Count > 0
+        && filtered.All(r => selectedIds.Contains(r.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRedirectsAsync();
+    }
+
+    private async Task LoadRedirectsAsync()
+    {
+        allRedirects = await RedirectService.GetAllAsync();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (allRedirects is null) return;
+
+        var result = allRedirects.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            result = result.Where(r =>
+                r.From.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                r.To.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        result = sortColumn switch
+        {
+            "to" => sortAscending
+                ? result.OrderBy(r => r.To)
+                : result.OrderByDescending(r => r.To),
+            "created" => sortAscending
+                ? result.OrderBy(r => r.CreatedAt)
+                : result.OrderByDescending(r => r.CreatedAt),
+            "hits" => sortAscending
+                ? result.OrderBy(r => r.HitCount)
+                : result.OrderByDescending(r => r.HitCount),
+            _ => sortAscending
+                ? result.OrderBy(r => r.From)
+                : result.OrderByDescending(r => r.From),
+        };
+
+        filtered = result.ToList();
+        selectedIds.Clear();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column == "from";
+        }
+        ApplyFilter();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. filtered.Select(r => r.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        foreach (var id in selectedIds)
+            await RedirectService.DeleteAsync(id);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadRedirectsAsync();
+    }
+
+    private void OpenImportModal()
+    {
+        showImportModal = true;
+        importCsvText = "";
+        importFileName = null;
+        importOverwrite = false;
+        importStatusMessage = null;
+    }
+
+    private void CloseImportModal()
+    {
+        if (importing) return;
+        showImportModal = false;
+    }
+
+    private async Task OnImportFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        // 5 MB limit — CSV of redirects shouldn't be larger.
+        const long maxSize = 5 * 1024 * 1024;
+        if (file.Size > maxSize)
+        {
+            importStatusMessage = "File is too large. Maximum size is 5 MB.";
+            importIsError = true;
+            return;
+        }
+
+        importFileName = file.Name;
+        using var stream = file.OpenReadStream(maxSize);
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+        importCsvText = await reader.ReadToEndAsync();
+    }
+
+    private async Task RunImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(importCsvText)) return;
+
+        importing = true;
+        importStatusMessage = null;
+        importResult = null;
+
+        try
+        {
+            importResult = await RedirectService.BulkImportAsync(importCsvText, importOverwrite);
+
+            var changes = importResult.Imported + importResult.Updated;
+            importStatusMessage = importResult.Errors.Count == 0
+                ? $"Import complete — {importResult.Imported} created, {importResult.Updated} updated, {importResult.Skipped} skipped."
+                : $"Import finished with {importResult.Errors.Count} error(s). {changes} change(s) applied.";
+            importIsError = importResult.Errors.Count > 0 && changes == 0;
+
+            showImportModal = false;
+            await LoadRedirectsAsync();
+        }
+        catch (Exception ex)
+        {
+            importStatusMessage = $"Import failed: {ex.Message}";
+            importIsError = true;
+        }
+        finally
+        {
+            importing = false;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

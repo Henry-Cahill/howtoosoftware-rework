@@ -1,0 +1,449 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor,Author,Contributor")]
+@inject IDashboardService DashboardService
+@inject ISettingsService SettingsService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@implements IAsyncDisposable
+
+<PageTitle>Dashboard — HowToSoftware Admin</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (data is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <!-- KPI Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <a href="posts?status=published" class="text-decoration-none text-reset">
+                <div class="card kpi-card">
+                    <div class="card-body">
+                        <div class="kpi-icon text-primary"><i class="bi bi-file-earmark-text-fill"></i></div>
+                        <div class="kpi-value">@data.PublishedPostCount</div>
+                        <div class="kpi-label">Published Posts</div>
+                        @if (data.DraftPostCount > 0 || data.ScheduledPostCount > 0)
+                        {
+                            <div class="kpi-sub">
+                                @if (data.DraftPostCount > 0) { <span>@data.DraftPostCount drafts</span> }
+                                @if (data.ScheduledPostCount > 0) { <span>@data.ScheduledPostCount scheduled</span> }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </a>
+        </div>
+        <AuthorizeView Roles="Owner,Administrator" Context="adminAuth">
+        <div class="col-sm-6 col-xl-3">
+            <a href="members" class="text-decoration-none text-reset">
+                <div class="card kpi-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="kpi-icon text-success"><i class="bi bi-people-fill"></i></div>
+                                <div class="kpi-value">@data.TotalMemberCount</div>
+                                <div class="kpi-label">Members</div>
+                            </div>
+                            @if (data.AnalyticsTrend.Count > 1)
+                            {
+                                <div class="sparkline-container">
+                                    @((MarkupString)BuildSparklineSvg(data.AnalyticsTrend, t => t.Visitors, "#198754"))
+                                </div>
+                            }
+                        </div>
+                        <div class="kpi-sub">
+                            <span>@data.FreeMemberCount free</span>
+                            <span>@data.PaidMemberCount paid</span>
+                        </div>
+                        @if (data.VisitorChangePercent.HasValue)
+                        {
+                            <div class="kpi-trend @(data.VisitorChangePercent.Value >= 0 ? "trend-up" : "trend-down")">
+                                <span>@(data.VisitorChangePercent.Value >= 0 ? "▲" : "▼") @Math.Abs(data.VisitorChangePercent.Value).ToString("0.#")% visitors vs prior 7d</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <a href="analytics" class="text-decoration-none text-reset">
+                <div class="card kpi-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="kpi-icon text-info"><i class="bi bi-eye-fill"></i></div>
+                                <div class="kpi-value">@data.AnalyticsTrend.Sum(t => t.Pageviews).ToString("N0")</div>
+                                <div class="kpi-label">Pageviews (7d)</div>
+                            </div>
+                            @if (data.AnalyticsTrend.Count > 1)
+                            {
+                                <div class="sparkline-container">
+                                    @((MarkupString)BuildSparklineSvg(data.AnalyticsTrend, t => t.Pageviews, "#0dcaf0"))
+                                </div>
+                            }
+                        </div>
+                        @if (data.PageviewChangePercent.HasValue)
+                        {
+                            <div class="kpi-trend @(data.PageviewChangePercent.Value >= 0 ? "trend-up" : "trend-down")">
+                                <span>@(data.PageviewChangePercent.Value >= 0 ? "▲" : "▼") @Math.Abs(data.PageviewChangePercent.Value).ToString("0.#")% vs prior 7d</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <a href="analytics" class="text-decoration-none text-reset">
+                <div class="card kpi-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="kpi-icon text-warning"><i class="bi bi-cursor-fill"></i></div>
+                                <div class="kpi-value">@data.AnalyticsTrend.Sum(t => t.Sessions).ToString("N0")</div>
+                                <div class="kpi-label">Sessions (7d)</div>
+                            </div>
+                            @if (data.AnalyticsTrend.Count > 1)
+                            {
+                                <div class="sparkline-container">
+                                    @((MarkupString)BuildSparklineSvg(data.AnalyticsTrend, t => t.Sessions, "#ffc107"))
+                                </div>
+                            }
+                        </div>
+                        @if (data.SessionChangePercent.HasValue)
+                        {
+                            <div class="kpi-trend @(data.SessionChangePercent.Value >= 0 ? "trend-up" : "trend-down")">
+                                <span>@(data.SessionChangePercent.Value >= 0 ? "▲" : "▼") @Math.Abs(data.SessionChangePercent.Value).ToString("0.#")% vs prior 7d</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </a>
+        </div>
+        </AuthorizeView>
+    </div>
+
+    <!-- Quick-Glance Analytics (Today) -->
+    <AuthorizeView Roles="Owner,Administrator" Context="adminAuth2">
+    <div class="card mb-4">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-4 flex-wrap">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-people text-primary"></i>
+                        <span class="text-muted small">Today's visitors</span>
+                        <span class="fw-semibold">@data.TodayVisitors.ToString("N0")</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-eye text-info"></i>
+                        <span class="text-muted small">Pageviews</span>
+                        <span class="fw-semibold">@data.TodayPageviews.ToString("N0")</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(data.TodayTopPage))
+                    {
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-star text-warning"></i>
+                            <span class="text-muted small">Top page</span>
+                            <span class="fw-semibold text-truncate" style="max-width:260px" title="@data.TodayTopPage">@data.TodayTopPage</span>
+                        </div>
+                    }
+                </div>
+                <a href="analytics" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up me-1"></i>Full analytics</a>
+            </div>
+        </div>
+    </div>
+    </AuthorizeView>
+
+    <div class="row g-3">
+        <!-- Recent Activity -->
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Recent Activity</strong>
+                </div>
+                <div class="card-body p-0">
+                    @if (activity is null || activity.Count == 0)
+                    {
+                        <p class="text-muted p-3 mb-0">No recent activity.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var item in activity)
+                            {
+                                <a href="@item.LinkUrl" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+                                    <span class="activity-icon @ActivityIconClass(item.Type)">
+                                        <i class="bi @ActivityIcon(item.Type)"></i>
+                                    </span>
+                                    <div class="flex-grow-1 text-truncate">
+                                        <span class="fw-medium">@item.Summary</span>
+                                    </div>
+                                    <small class="text-muted flex-shrink-0">@FormatDate(item.OccurredAt)</small>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card mt-3 quick-actions-toolbar">
+        <div class="card-header"><strong>Quick Actions</strong></div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-3">
+                <a href="posts/new" class="btn btn-primary btn-lg">
+                    <i class="bi bi-pencil-square me-2"></i>New Post
+                </a>
+                <a href="pages/new" class="btn btn-outline-primary btn-lg">
+                    <i class="bi bi-file-earmark-plus me-2"></i>New Page
+                </a>
+                <AuthorizeView Roles="Owner,Administrator" Context="adminAuth3">
+                <a href="newsletters" class="btn btn-outline-primary btn-lg">
+                    <i class="bi bi-envelope-paper me-2"></i>Send Newsletter
+                </a>
+                </AuthorizeView>
+                <a href="@siteUrl" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-box-arrow-up-right me-2"></i>View Site
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Content -->
+    <div class="card mt-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong><i class="bi bi-calendar-event me-2"></i>Scheduled Content</strong>
+        </div>
+        <div class="card-body p-0">
+            @if (scheduledContent is null)
+            {
+                <p class="text-muted p-3 mb-0">Loading…</p>
+            }
+            else if (scheduledContent.Count == 0)
+            {
+                <p class="text-muted p-3 mb-0">No scheduled content.</p>
+            }
+            else
+            {
+                <div class="list-group list-group-flush">
+                    @foreach (var item in scheduledContent)
+                    {
+                        <a href="@(item.Type == "page" ? "pages" : "posts")/@item.Id" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+                            <span class="@(item.Type == "page" ? "text-secondary" : "text-primary")">
+                                <i class="bi @(item.Type == "page" ? "bi-file-earmark" : "bi-file-earmark-text")"></i>
+                            </span>
+                            <div class="flex-grow-1 text-truncate">
+                                <span class="fw-medium">@item.Title</span>
+                                <small class="text-muted ms-2">@item.Type</small>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <small class="text-muted d-block">@item.ScheduledAt.ToString("MMM d, yyyy h:mm tt")</small>
+                                <small class="fw-semibold text-info" data-countdown="@(new DateTimeOffset(item.ScheduledAt, TimeSpan.Zero).ToUnixTimeMilliseconds())"></small>
+                            </div>
+                        </a>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- System Health -->
+    <AuthorizeView Roles="Owner,Administrator" Context="adminAuth4">
+    <div class="card mt-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong><i class="bi bi-heart-pulse me-2"></i>System Health</strong>
+            @if (healthEntries is not null)
+            {
+                <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshHealthAsync" disabled="@healthLoading">
+                    <i class="bi bi-arrow-clockwise @(healthLoading ? "spin" : "")"></i>
+                </button>
+            }
+        </div>
+        <div class="card-body p-0">
+            @if (healthEntries is null)
+            {
+                <p class="text-muted p-3 mb-0">Checking systems…</p>
+            }
+            else
+            {
+                <div class="list-group list-group-flush">
+                    @foreach (var entry in healthEntries)
+                    {
+                        <div class="list-group-item d-flex align-items-center gap-3">
+                            <span class="health-dot @HealthDotClass(entry.Status)"></span>
+                            <div class="flex-grow-1">
+                                <span class="fw-medium">@FormatHealthName(entry.Name)</span>
+                                @if (!string.IsNullOrEmpty(entry.Description))
+                                {
+                                    <small class="text-muted ms-2">@entry.Description</small>
+                                }
+                            </div>
+                            <span class="badge @HealthBadgeClass(entry.Status)">@entry.Status</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+    </AuthorizeView>
+}
+
+@code {
+    private DashboardData? data;
+    private IReadOnlyList<ActivityFeedItem>? activity;
+    private IReadOnlyList<ScheduledContentItem>? scheduledContent;
+    private IReadOnlyList<SystemHealthEntry>? healthEntries;
+    private bool healthLoading;
+    private string siteUrl = "https://howtoosoftware.com";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole("Owner") || authState.User.IsInRole("Administrator");
+
+        data = await DashboardService.GetDashboardAsync();
+        activity = await DashboardService.GetRecentActivityAsync(15);
+        scheduledContent = await DashboardService.GetScheduledContentAsync();
+        siteUrl = await SettingsService.GetStringAsync("url") ?? "https://howtoosoftware.com";
+
+        if (isAdmin)
+        {
+            try
+            {
+                healthEntries = await DashboardService.GetSystemHealthAsync();
+            }
+            catch
+            {
+                healthEntries = [];
+            }
+        }
+        else
+        {
+            healthEntries = [];
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && scheduledContent is not null && scheduledContent.Count > 0)
+        {
+            await JS.InvokeVoidAsync("countdownTimer.start");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("countdownTimer.stop"); } catch (JSDisconnectedException) { }
+    }
+
+    private async Task RefreshHealthAsync()
+    {
+        healthLoading = true;
+        try
+        {
+            healthEntries = await DashboardService.GetSystemHealthAsync();
+        }
+        catch
+        {
+            healthEntries = [];
+        }
+        healthLoading = false;
+    }
+
+    private static string ActivityIcon(ActivityType type) => type switch
+    {
+        ActivityType.PostPublished => "bi-file-earmark-text-fill",
+        ActivityType.MemberSignup => "bi-person-plus-fill",
+        ActivityType.CommentPosted => "bi-chat-dots-fill",
+        ActivityType.NewsletterSent => "bi-envelope-fill",
+        ActivityType.DonationReceived => "bi-heart-fill",
+        _ => "bi-circle-fill",
+    };
+
+    private static string ActivityIconClass(ActivityType type) => type switch
+    {
+        ActivityType.PostPublished => "text-primary",
+        ActivityType.MemberSignup => "text-success",
+        ActivityType.CommentPosted => "text-info",
+        ActivityType.NewsletterSent => "text-warning",
+        ActivityType.DonationReceived => "text-danger",
+        _ => "text-secondary",
+    };
+
+    private static string StatusBadgeClass(string status) => status switch
+    {
+        "published" => "bg-success",
+        "draft" => "bg-secondary",
+        "scheduled" => "bg-info text-dark",
+        "free" => "bg-primary",
+        "paid" => "bg-warning text-dark",
+        "comped" => "bg-info text-dark",
+        _ => "bg-secondary",
+    };
+
+    private static string FormatDate(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        return dt.ToString("MMM d, yyyy");
+    }
+
+    private static string BuildSparklineSvg(IReadOnlyList<DailyTrendPoint> points, Func<DailyTrendPoint, int> selector, string color)
+    {
+        const int w = 80, h = 32;
+        var values = points.Select(selector).ToList();
+        var max = values.Max();
+        var min = values.Min();
+        var range = max - min;
+        if (range == 0) range = 1;
+
+        var coords = new List<string>();
+        for (var i = 0; i < values.Count; i++)
+        {
+            var x = values.Count == 1 ? w / 2.0 : (double)i / (values.Count - 1) * w;
+            var y = h - (double)(values[i] - min) / range * (h - 4) - 2;
+            coords.Add($"{x:F1},{y:F1}");
+        }
+
+        var polyline = string.Join(" ", coords);
+        return $"""<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg"><polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>""";
+    }
+
+    private static string HealthDotClass(HealthStatus status) => status switch
+    {
+        HealthStatus.Healthy => "health-healthy",
+        HealthStatus.Degraded => "health-degraded",
+        _ => "health-unhealthy",
+    };
+
+    private static string HealthBadgeClass(HealthStatus status) => status switch
+    {
+        HealthStatus.Healthy => "bg-success",
+        HealthStatus.Degraded => "bg-warning text-dark",
+        _ => "bg-danger",
+    };
+
+    private static string FormatHealthName(string name) => name switch
+    {
+        "database" => "Database",
+        "disk_space" => "Disk Space",
+        "stripe" => "Stripe",
+        "mailgun" => "Mailgun",
+        _ => name,
+    };
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

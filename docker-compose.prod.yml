@@ -1,0 +1,57 @@
+# HowToSoftware — Production Docker Compose Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires .env file with:
+#   DB_PASSWORD, DB_HOST, SITE_URL, MAILGUN_DOMAIN, MAILGUN_API_KEY
+
+services:
+
+  web:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          cpus: "0.25"
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "{{.Name}}"
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  admin:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          cpus: "0.25"
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/ghost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "{{.Name}}"
+    read_only: true
+    tmpfs:
+      - /tmp

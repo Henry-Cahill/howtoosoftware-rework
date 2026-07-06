@@ -1,0 +1,77 @@
+@page "/tag/{slug}"
+@model TagModel
+@{
+    var tag = Model.Tag;
+}
+
+<main id="site-main" class="site-main outer">
+<div class="inner posts">
+
+    <div class="post-feed">
+
+        @* ── Tag profile card (large) ── *@
+        <section class="post-card post-card-large">
+
+            @if (!string.IsNullOrEmpty(tag.FeatureImage))
+            {
+                <div class="post-card-image-link">
+                    <img class="post-card-image"
+                         srcset="@(tag.FeatureImage)?w=300 300w,
+                                 @(tag.FeatureImage)?w=600 600w,
+                                 @(tag.FeatureImage)?w=1000 1000w,
+                                 @(tag.FeatureImage)?w=2000 2000w"
+                         sizes="(max-width: 1000px) 400px, 800px"
+                         src="@(tag.FeatureImage)?w=600"
+                         alt="@tag.Name" />
+                </div>
+            }
+
+            <div class="post-card-content">
+            <div class="post-card-content-link">
+                <header class="post-card-header">
+                    <h2 class="post-card-title">@tag.Name</h2>
+                </header>
+                <div class="post-card-excerpt">
+                    @if (!string.IsNullOrEmpty(tag.Description))
+                    {
+                        @tag.Description
+                    }
+                    else
+                    {
+                        var label = Model.PostCount == 1 ? "post" : "posts";
+                        <text>A collection of @Model.PostCount @label</text>
+                    }
+                </div>
+            </div>
+            </div>
+
+        </section>
+
+        @* ── Tag's posts ── *@
+        @foreach (var card in Model.PostCards)
+        {
+            <partial name="_PostCard" model="card" />
+        }
+
+    </div>
+
+    @* ── Pagination ── *@
+    @{
+        var tagPagination = new HowToSoftware.Web.Models.PaginationViewModel
+        {
+            CurrentPage = Model.CurrentPage,
+            TotalPages = Model.TotalPages,
+            HasPreviousPage = Model.HasPreviousPage,
+            HasNextPage = Model.HasNextPage,
+            BaseUrl = "/tag/" + tag.Slug + "/"
+        };
+    }
+    <partial name="_Pagination" model="tagPagination" />
+
+</div>
+</main>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

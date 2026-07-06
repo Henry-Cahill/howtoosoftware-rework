@@ -1,0 +1,685 @@
+@page "/staff/{UserId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IUserRepository UserRepository
+@inject ISlugGenerator SlugGenerator
+@inject IImageStorageService ImageStorage
+@inject UserManager<User> UserManager
+@inject RoleManager<Role> RoleManager
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(loaded ? $"Edit Staff — {name}" : "Edit Staff") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="staff" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Staff
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!isOwnProfile && currentUserRole == "Owner" && userRole != "Owner")
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showSuspendConfirm = true" disabled="@saving">
+                @if (user?.Status == "inactive")
+                {
+                    <i class="bi bi-person-check me-1"></i><span>Activate</span>
+                }
+                else
+                {
+                    <i class="bi bi-person-slash me-1"></i><span>Suspend</span>
+                }
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>Save
+        </button>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- Basic Info -->
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">Profile</h6>
+
+                    <!-- Profile Image -->
+                    <div class="mb-3">
+                        <label class="form-label">Profile image</label>
+                        <div class="d-flex align-items-center gap-3">
+                            @if (!string.IsNullOrEmpty(profileImage))
+                            {
+                                <img src="@profileImage" alt="@name" class="rounded-circle" width="80" height="80" style="object-fit: cover" />
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => profileImage = null">
+                                    <i class="bi bi-x-lg me-1"></i>Remove
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="avatar-placeholder rounded-circle d-flex align-items-center justify-content-center"
+                                     style="width:80px;height:80px;background:#6c757d;color:#fff;font-size:2rem">
+                                    @(name.Length > 0 ? char.ToUpper(name[0]) : '?')
+                                </div>
+                            }
+                            <label class="btn btn-sm btn-outline-primary mb-0">
+                                <InputFile OnChange="UploadProfileImageAsync" accept="image/*" class="d-none" />
+                                <i class="bi bi-upload me-1"></i>Upload
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Cover Image -->
+                    <div class="mb-3">
+                        <label class="form-label">Cover image</label>
+                        @if (!string.IsNullOrEmpty(coverImage))
+                        {
+                            <div class="feature-image-preview">
+                                <img src="@coverImage" alt="Cover image" />
+                                <button class="btn btn-sm btn-danger feature-image-remove" @onclick="() => coverImage = null">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <label class="feature-image-upload">
+                                <InputFile OnChange="UploadCoverImageAsync" accept="image/*" />
+                                <i class="bi bi-image me-2"></i>Add cover image
+                            </label>
+                        }
+                    </div>
+
+                    <!-- Full Name -->
+                    <div class="mb-3">
+                        <label class="form-label">Full name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="Full name" />
+                    </div>
+
+                    <!-- Slug -->
+                    <div class="mb-3">
+                        <label class="form-label">Slug</label>
+                        <div class="input-group">
+                            <span class="input-group-text">/author/</span>
+                            <input type="text" class="form-control" @bind="slug" placeholder="auto-generated" />
+                            <span class="input-group-text">/</span>
+                        </div>
+                    </div>
+
+                    <!-- Email (read-only for non-self) -->
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" value="@email" disabled />
+                        <div class="form-text">Email cannot be changed from here.</div>
+                    </div>
+
+                    <!-- Location -->
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" class="form-control" @bind="location" placeholder="City, Country" />
+                    </div>
+
+                    <!-- Website -->
+                    <div class="mb-3">
+                        <label class="form-label">Website</label>
+                        <input type="url" class="form-control" @bind="website" placeholder="https://..." />
+                    </div>
+
+                    <!-- Bio -->
+                    <div class="mb-0">
+                        <label class="form-label">Bio</label>
+                        <textarea class="form-control" rows="3" @bind="bio" placeholder="Short bio…"></textarea>
+                        <div class="form-text">Recommended: 200 characters. @(bio?.Length ?? 0)/200</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Social Accounts -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Social accounts</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showSocial = !showSocial">
+                        <i class="bi @(showSocial ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showSocial)
+                {
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-twitter-x me-1"></i>X (Twitter)</label>
+                                <input type="text" class="form-control form-control-sm" @bind="twitter" placeholder="@@username or URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-facebook me-1"></i>Facebook</label>
+                                <input type="text" class="form-control form-control-sm" @bind="facebook" placeholder="Username or URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-threads me-1"></i>Threads</label>
+                                <input type="text" class="form-control form-control-sm" @bind="threads" placeholder="@@username or URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-mastodon me-1"></i>Mastodon</label>
+                                <input type="text" class="form-control form-control-sm" @bind="mastodon" placeholder="@@user@@instance" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-cloud me-1"></i>Bluesky</label>
+                                <input type="text" class="form-control form-control-sm" @bind="bluesky" placeholder="@@handle.bsky.social" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-instagram me-1"></i>Instagram</label>
+                                <input type="text" class="form-control form-control-sm" @bind="instagram" placeholder="Username or URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-linkedin me-1"></i>LinkedIn</label>
+                                <input type="text" class="form-control form-control-sm" @bind="linkedin" placeholder="Username or URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-youtube me-1"></i>YouTube</label>
+                                <input type="text" class="form-control form-control-sm" @bind="youtube" placeholder="Channel URL" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small"><i class="bi bi-tiktok me-1"></i>TikTok</label>
+                                <input type="text" class="form-control form-control-sm" @bind="tiktok" placeholder="@@username or URL" />
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Notification Preferences -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Email notifications</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showNotifications = !showNotifications">
+                        <i class="bi @(showNotifications ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showNotifications)
+                {
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifComments" @bind="commentNotifications" />
+                            <label class="form-check-label" for="notifComments">Comments on your posts</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifFreeMember" @bind="freeMemberSignupNotification" />
+                            <label class="form-check-label" for="notifFreeMember">New free member signups</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifPaidStart" @bind="paidSubscriptionStartedNotification" />
+                            <label class="form-check-label" for="notifPaidStart">New paid subscriptions</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifPaidCancel" @bind="paidSubscriptionCanceledNotification" />
+                            <label class="form-check-label" for="notifPaidCancel">Paid subscription cancellations</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifMentions" @bind="mentionNotifications" />
+                            <label class="form-check-label" for="notifMentions">Mentions</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifRecommendations" @bind="recommendationNotifications" />
+                            <label class="form-check-label" for="notifRecommendations">Recommendations</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifMilestones" @bind="milestoneNotifications" />
+                            <label class="form-check-label" for="notifMilestones">Milestones</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="notifDonations" @bind="donationNotifications" />
+                            <label class="form-check-label" for="notifDonations">Donations</label>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Meta Data -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Meta data</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showMeta = !showMeta">
+                        <i class="bi @(showMeta ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showMeta)
+                {
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label small">Meta title</label>
+                            <input type="text" class="form-control form-control-sm" @bind="metaTitle" placeholder="@name" />
+                            <div class="form-text">Recommended: 60 characters. @(metaTitle?.Length ?? 0)/60</div>
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label small">Meta description</label>
+                            <textarea class="form-control form-control-sm" rows="2" @bind="metaDescription"
+                                      placeholder="Search engine description…"></textarea>
+                            <div class="form-text">Recommended: 160 characters. @(metaDescription?.Length ?? 0)/160</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Role -->
+            <div class="card">
+                <div class="card-body">
+                    <h6>Role</h6>
+                    @if (isOwnProfile || userRole == "Owner")
+                    {
+                        <span class="badge @GetRoleBadgeClass(userRole) fs-6">@userRole</span>
+                        @if (isOwnProfile)
+                        {
+                            <div class="form-text mt-1">You cannot change your own role.</div>
+                        }
+                        else
+                        {
+                            <div class="form-text mt-1">The Owner role cannot be changed.</div>
+                        }
+                    }
+                    else
+                    {
+                        <select class="form-select" @bind="selectedRoleId">
+                            @foreach (var role in assignableRoles)
+                            {
+                                <option value="@role.Id">@role.Name</option>
+                            }
+                        </select>
+                    }
+                </div>
+            </div>
+
+            <!-- Details -->
+            @if (user is not null)
+            {
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6>Details</h6>
+                        <dl class="small mb-0">
+                            <dt class="text-muted">ID</dt>
+                            <dd class="font-monospace small">@user.Id</dd>
+
+                            <dt class="text-muted">Status</dt>
+                            <dd>
+                                <span class="badge @(user.Status == "active" ? "bg-success" : "bg-warning text-dark")">
+                                    @user.Status
+                                </span>
+                            </dd>
+
+                            <dt class="text-muted">Created</dt>
+                            <dd>@user.CreatedAt.ToString("MMM d, yyyy HH:mm")</dd>
+
+                            @if (user.LastSeen.HasValue)
+                            {
+                                <dt class="text-muted">Last seen</dt>
+                                <dd>@user.LastSeen.Value.ToString("MMM d, yyyy HH:mm")</dd>
+                            }
+
+                            <dt class="text-muted">Posts</dt>
+                            <dd>@postCount</dd>
+                        </dl>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Suspend/Activate Confirmation Modal -->
+@if (showSuspendConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @(user?.Status == "inactive" ? "Activate" : "Suspend") staff user
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showSuspendConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    @if (user?.Status == "inactive")
+                    {
+                        <p>Are you sure you want to reactivate <strong>@name</strong>? They will regain access to the admin panel.</p>
+                    }
+                    else
+                    {
+                        <p>Are you sure you want to suspend <strong>@name</strong>? They will lose access to the admin panel until reactivated.</p>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showSuspendConfirm = false">Cancel</button>
+                    <button class="btn @(user?.Status == "inactive" ? "btn-success" : "btn-danger")" @onclick="ToggleSuspendAsync">
+                        @(user?.Status == "inactive" ? "Activate" : "Suspend")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = null!;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // State
+    private User? user;
+    private bool loaded;
+    private bool saving;
+    private bool showSocial;
+    private bool showNotifications;
+    private bool showMeta;
+    private bool showSuspendConfirm;
+    private string? statusMessage;
+    private bool isError;
+    private int postCount;
+
+    // Auth context
+    private string? currentUserId;
+    private string currentUserRole = "";
+    private bool isOwnProfile;
+
+    // Role management
+    private string userRole = "";
+    private string selectedRoleId = "";
+    private List<Role> assignableRoles = [];
+
+    // Form fields — profile
+    private string name = "";
+    private string slug = "";
+    private string email = "";
+    private string? profileImage;
+    private string? coverImage;
+    private string? bio;
+    private string? website;
+    private string? location;
+
+    // Social
+    private string? twitter;
+    private string? facebook;
+    private string? threads;
+    private string? mastodon;
+    private string? bluesky;
+    private string? instagram;
+    private string? linkedin;
+    private string? youtube;
+    private string? tiktok;
+
+    // Notifications
+    private bool commentNotifications;
+    private bool freeMemberSignupNotification;
+    private bool paidSubscriptionStartedNotification;
+    private bool paidSubscriptionCanceledNotification;
+    private bool mentionNotifications;
+    private bool recommendationNotifications;
+    private bool milestoneNotifications;
+    private bool donationNotifications;
+
+    // Meta
+    private string? metaTitle;
+    private string? metaDescription;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var auth = await AuthState;
+            currentUserId = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            currentUserRole = auth.User.IsInRole("Owner") ? "Owner" : "Administrator";
+        }
+
+        // Load assignable roles (exclude Owner)
+        assignableRoles = RoleManager.Roles
+            .Where(r => r.Name != "Owner")
+            .OrderBy(r => r.Name)
+            .ToList();
+
+        user = await UserRepository.GetByIdWithRolesAsync(UserId);
+        if (user is null)
+        {
+            Navigation.NavigateTo("staff");
+            return;
+        }
+
+        isOwnProfile = user.Id == currentUserId;
+        LoadUserIntoForm(user);
+        postCount = await UserRepository.GetPostCountAsync(user.Id);
+        loaded = true;
+    }
+
+    private void LoadUserIntoForm(User u)
+    {
+        name = u.Name;
+        slug = u.Slug;
+        email = u.Email ?? "";
+        profileImage = u.ProfileImage;
+        coverImage = u.CoverImage;
+        bio = u.Bio;
+        website = u.Website;
+        location = u.Location;
+
+        // Social
+        twitter = u.Twitter;
+        facebook = u.Facebook;
+        threads = u.Threads;
+        mastodon = u.Mastodon;
+        bluesky = u.Bluesky;
+        instagram = u.Instagram;
+        linkedin = u.LinkedIn;
+        youtube = u.YouTube;
+        tiktok = u.TikTok;
+
+        // Notifications
+        commentNotifications = u.CommentNotifications;
+        freeMemberSignupNotification = u.FreeMemberSignupNotification;
+        paidSubscriptionStartedNotification = u.PaidSubscriptionStartedNotification;
+        paidSubscriptionCanceledNotification = u.PaidSubscriptionCanceledNotification;
+        mentionNotifications = u.MentionNotifications;
+        recommendationNotifications = u.RecommendationNotifications;
+        milestoneNotifications = u.MilestoneNotifications;
+        donationNotifications = u.DonationNotifications;
+
+        // Meta
+        metaTitle = u.MetaTitle;
+        metaDescription = u.MetaDescription;
+
+        // Role
+        userRole = GetRoleName(u);
+        var currentRole = assignableRoles.FirstOrDefault(r => r.Name == userRole);
+        selectedRoleId = currentRole?.Id ?? assignableRoles.FirstOrDefault()?.Id ?? "";
+    }
+
+    private async Task SaveAsync()
+    {
+        statusMessage = null;
+        isError = false;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            var userSlug = string.IsNullOrWhiteSpace(slug)
+                ? SlugGenerator.GenerateSlug(name)
+                : SlugGenerator.GenerateSlug(slug);
+
+            // Check for duplicate slug
+            var existing = await UserRepository.GetBySlugAsync(userSlug);
+            if (existing is not null && existing.Id != user!.Id)
+            {
+                var baseSlug = userSlug;
+                var counter = 2;
+                do
+                {
+                    userSlug = $"{baseSlug}-{counter}";
+                    existing = await UserRepository.GetBySlugAsync(userSlug);
+                    counter++;
+                } while (existing is not null && existing.Id != user.Id);
+            }
+
+            // Update profile
+            user!.Name = name.Trim();
+            user.Slug = userSlug;
+            user.ProfileImage = profileImage;
+            user.CoverImage = coverImage;
+            user.Bio = TrimOrNull(bio);
+            user.Website = TrimOrNull(website);
+            user.Location = TrimOrNull(location);
+
+            // Social
+            user.Twitter = TrimOrNull(twitter);
+            user.Facebook = TrimOrNull(facebook);
+            user.Threads = TrimOrNull(threads);
+            user.Mastodon = TrimOrNull(mastodon);
+            user.Bluesky = TrimOrNull(bluesky);
+            user.Instagram = TrimOrNull(instagram);
+            user.LinkedIn = TrimOrNull(linkedin);
+            user.YouTube = TrimOrNull(youtube);
+            user.TikTok = TrimOrNull(tiktok);
+
+            // Notifications
+            user.CommentNotifications = commentNotifications;
+            user.FreeMemberSignupNotification = freeMemberSignupNotification;
+            user.PaidSubscriptionStartedNotification = paidSubscriptionStartedNotification;
+            user.PaidSubscriptionCanceledNotification = paidSubscriptionCanceledNotification;
+            user.MentionNotifications = mentionNotifications;
+            user.RecommendationNotifications = recommendationNotifications;
+            user.MilestoneNotifications = milestoneNotifications;
+            user.DonationNotifications = donationNotifications;
+
+            // Meta
+            user.MetaTitle = TrimOrNull(metaTitle);
+            user.MetaDescription = TrimOrNull(metaDescription);
+
+            user.UpdatedAt = DateTime.UtcNow;
+            await UserRepository.UpdateAsync(user);
+
+            // Update role if changed (and allowed)
+            if (!isOwnProfile && userRole != "Owner")
+            {
+                var newRole = assignableRoles.FirstOrDefault(r => r.Id == selectedRoleId);
+                if (newRole is not null && newRole.Name != userRole)
+                {
+                    // Remove current roles and add new one
+                    var currentRoles = await UserManager.GetRolesAsync(user);
+                    if (currentRoles.Count > 0)
+                        await UserManager.RemoveFromRolesAsync(user, currentRoles);
+                    await UserManager.AddToRoleAsync(user, newRole.Name!);
+                    userRole = newRole.Name!;
+                }
+            }
+
+            slug = user.Slug;
+            statusMessage = "Staff profile saved!";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task ToggleSuspendAsync()
+    {
+        if (user is null) return;
+
+        user.Status = user.Status == "inactive" ? "active" : "inactive";
+        user.UpdatedAt = DateTime.UtcNow;
+        await UserRepository.UpdateAsync(user);
+
+        showSuspendConfirm = false;
+        statusMessage = user.Status == "active"
+            ? $"{name} has been activated."
+            : $"{name} has been suspended.";
+        isError = false;
+    }
+
+    private async Task UploadProfileImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        profileImage = result.Url;
+    }
+
+    private async Task UploadCoverImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        coverImage = result.Url;
+    }
+
+    private static string GetRoleName(User user)
+    {
+        var roleNames = user.RolesUsers.Select(ru => ru.Role.Name).ToHashSet();
+        if (roleNames.Contains("Owner")) return "Owner";
+        if (roleNames.Contains("Administrator")) return "Administrator";
+        if (roleNames.Contains("Editor")) return "Editor";
+        if (roleNames.Contains("Author")) return "Author";
+        if (roleNames.Contains("Contributor")) return "Contributor";
+        return "Unknown";
+    }
+
+    private static string GetRoleBadgeClass(string role) => role switch
+    {
+        "Owner" => "bg-danger",
+        "Administrator" => "bg-primary",
+        "Editor" => "bg-success",
+        "Author" => "bg-info",
+        "Contributor" => "bg-secondary",
+        _ => "bg-secondary",
+    };
+
+    private static string? TrimOrNull(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

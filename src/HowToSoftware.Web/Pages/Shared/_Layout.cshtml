@@ -1,0 +1,264 @@
+﻿@inject HowToSoftware.Core.Interfaces.ISettingsService Settings
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authentication
+@using HowToSoftware.Web.Models
+@{
+    // ── Site settings ───────────────────────────────────────────
+    var siteTitle = await Settings.GetStringAsync("title") ?? "howtosoftware";
+    var siteDescription = await Settings.GetStringAsync("description") ?? "";
+    var siteLogo = await Settings.GetStringAsync("logo");
+    var siteIcon = await Settings.GetStringAsync("icon");
+    var accentColor = await Settings.GetStringAsync("accent_color") ?? "#FF1A75";
+    var locale = await Settings.GetStringAsync("locale") ?? "en";
+    var codeinjectionHead = await Settings.GetStringAsync("codeinjection_head");
+    var codeinjectionFoot = await Settings.GetStringAsync("codeinjection_foot");
+
+    // ── Navigation ──────────────────────────────────────────────
+    var navJson = await Settings.GetStringAsync("navigation") ?? "[]";
+    var secondaryNavJson = await Settings.GetStringAsync("secondary_navigation") ?? "[]";
+    var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+    var navItems = JsonSerializer.Deserialize<List<NavItem>>(navJson, jsonOptions) ?? [];
+    var secondaryNavItems = JsonSerializer.Deserialize<List<NavItem>>(secondaryNavJson, jsonOptions) ?? [];
+
+    // ── Page-specific meta (set by child pages via ViewData) ────
+    var pageTitle = ViewData["Title"] as string;
+    var fullTitle = string.IsNullOrEmpty(pageTitle) ? siteTitle : $"{pageTitle} - {siteTitle}";
+    var metaDescription = ViewData["MetaDescription"] as string ?? siteDescription;
+    var ogTitle = ViewData["OgTitle"] as string ?? fullTitle;
+    var ogDescription = ViewData["OgDescription"] as string ?? metaDescription;
+    var ogImage = ViewData["OgImage"] as string;
+    var ogType = ViewData["OgType"] as string ?? "website";
+    var canonicalUrl = ViewData["CanonicalUrl"] as string;
+    var bodyClass = ViewData["BodyClass"] as string ?? "";
+    var isArticle = ViewData["IsPost"] is true || ViewData["IsPage"] is true;
+}
+<!DOCTYPE html>
+<html lang="@locale" class="dark-mode" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="HandheldFriendly" content="True" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>@fullTitle</title>
+
+    @if (!string.IsNullOrEmpty(metaDescription))
+    {
+        <meta name="description" content="@metaDescription" />
+    }
+
+    @* ── Favicons ──
+       Always emit a same-origin /favicon.ico as the primary entry so that
+       privacy extensions, popup-blockers, and outages of the configured
+       upload CDN cannot leave the tab without an icon. The user-uploaded
+       `icon` setting is layered on top with its real MIME type so modern
+       browsers prefer it when reachable, but fall back gracefully when not. *@
+    <link rel="icon" href="~/favicon.ico" sizes="any" />
+    @if (!string.IsNullOrEmpty(siteIcon))
+    {
+        var iconMime = siteIcon.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ? "image/svg+xml"
+            : siteIcon.EndsWith(".ico", StringComparison.OrdinalIgnoreCase) ? "image/x-icon"
+            : siteIcon.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || siteIcon.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg"
+            : siteIcon.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ? "image/webp"
+            : "image/png";
+        <link rel="icon" href="@siteIcon" type="@iconMime" />
+        <link rel="shortcut icon" href="@siteIcon" type="@iconMime" />
+        <link rel="apple-touch-icon" href="@siteIcon" />
+    }
+
+    <link rel="preload" as="style" href="~/css/screen.css" />
+    <link rel="preload" as="script" href="~/js/main.min.js" />
+
+    <link rel="stylesheet" href="~/css/screen.css" asp-append-version="true" />
+
+    <style>:root { --ghost-accent-color: @accentColor; }</style>
+
+    @if (canonicalUrl != null)
+    {
+        <link rel="canonical" href="@canonicalUrl" />
+    }
+
+    <link rel="alternate" type="application/rss+xml" title="@siteTitle" href="/rss/" />
+    <link rel="webmention" href="/webmention" />
+
+    @* ── Open Graph ── *@
+    <meta property="og:site_name" content="@siteTitle" />
+    <meta property="og:type" content="@ogType" />
+    <meta property="og:title" content="@ogTitle" />
+    <meta property="og:description" content="@ogDescription" />
+    @if (ogImage != null)
+    {
+        <meta property="og:image" content="@ogImage" />
+    }
+
+    @* ── Twitter Card ── *@
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="@ogTitle" />
+    <meta name="twitter:description" content="@ogDescription" />
+    @if (ogImage != null)
+    {
+        <meta name="twitter:image" content="@ogImage" />
+    }
+
+    @* ── JSON-LD (provided by child pages) ── *@
+    @await RenderSectionAsync("JsonLd", required: false)
+
+    @* ── Code injection: head ── *@
+    @if (!string.IsNullOrEmpty(codeinjectionHead))
+    {
+        @Html.Raw(codeinjectionHead)
+    }
+
+    @* ── Page-specific head ── *@
+    @await RenderSectionAsync("Head", required: false)
+</head>
+<body class="@bodyClass dark-mode is-head-left-logo has-cover">
+<div class="viewport">
+
+    <header id="gh-head" class="gh-head outer">
+        <div class="gh-head-inner inner">
+            <div class="gh-head-brand">
+                <a class="gh-head-logo@(siteLogo == null ? " no-image" : "")" href="/">
+                    @if (siteLogo != null)
+                    {
+                        <img src="@siteLogo" alt="@siteTitle" />
+                    }
+                    else
+                    {
+                        @siteTitle
+                    }
+                </a>
+                <button class="gh-burger" aria-label="Main Menu"></button>
+            </div>
+
+            <nav class="gh-head-menu">
+                @foreach (var item in navItems)
+                {
+                    <a href="@item.Url">@item.Label</a>
+                }
+            </nav>
+
+            <div class="gh-head-actions">
+                <button class="gh-search gh-icon-btn" aria-label="Search this site">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </button>
+                <div class="gh-head-members">
+                    @{
+                        var memberAuth = await Context.AuthenticateAsync("MemberCookie");
+                    }
+                    @if (memberAuth.Succeeded)
+                    {
+                        <a class="gh-head-link" href="/account/">Account</a>
+                    }
+                    else
+                    {
+                        <a class="gh-head-link" href="/signin/">Sign in</a>
+                        <a class="gh-head-button" href="/signup/">Subscribe</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </header>
+
+    @* ── Reading Progress Bar ── *@
+    <div class="reading-progress" id="reading-progress">
+        <div class="reading-progress-fill"></div>
+    </div>
+
+    <div class="site-content">
+        @RenderBody()
+    </div>
+
+    @* ── Back to Top ── *@
+    <button class="back-to-top" id="back-to-top" aria-label="Back to top" title="Back to top">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+    </button>
+
+    @* ── Footer ── *@
+    <footer class="site-footer outer">
+        <div class="inner footer-grid">
+            <div class="footer-section footer-brand">
+                <a href="/" class="footer-logo">
+                    @if (siteLogo != null)
+                    {
+                        <img src="@siteLogo" alt="@siteTitle" />
+                    }
+                    else
+                    {
+                        @siteTitle
+                    }
+                </a>
+                <p class="footer-description">@siteDescription</p>
+                <section class="copyright">&copy; @DateTime.UtcNow.Year @siteTitle</section>
+            </div>
+
+            <div class="footer-section">
+                <h4>Navigation</h4>
+                <nav class="site-footer-nav">
+                    @foreach (var item in secondaryNavItems)
+                    {
+                        <a href="@item.Url">@item.Label</a>
+                    }
+                </nav>
+            </div>
+
+            <div class="footer-section">
+                <h4>Connect</h4>
+            </div>
+        </div>
+    </footer>
+
+</div>
+@* ── /.viewport ── *@
+
+@* ── Search Modal ── *@
+<partial name="_SearchModal" />
+
+@* ── Lightbox (post/page only) ── *@
+@if (isArticle)
+{
+    await Html.RenderPartialAsync("_Lightbox");
+}
+
+@* ── Analytics ── *@
+@if (memberAuth.Succeeded)
+{
+    var memberUuid = memberAuth.Principal?.FindFirst("member_uuid")?.Value;
+    if (!string.IsNullOrEmpty(memberUuid))
+    {
+        <meta name="hts:member-uuid" content="@memberUuid" />
+    }
+}
+<script src="~/js/analytics.js" asp-append-version="true" defer></script>
+
+@* ── Scripts ── *@
+<script src="~/js/main.min.js" asp-append-version="true"></script>
+<script src="~/js/search.js" asp-append-version="true"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var burger = document.querySelector('.gh-burger');
+        if (burger) {
+            burger.addEventListener('click', function () {
+                document.body.classList.toggle('gh-head-open');
+            });
+        }
+    });
+</script>
+
+@if (!string.IsNullOrEmpty(codeinjectionFoot))
+{
+    @Html.Raw(codeinjectionFoot)
+}
+
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

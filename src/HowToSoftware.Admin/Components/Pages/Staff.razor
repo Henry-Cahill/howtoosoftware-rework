@@ -1,0 +1,677 @@
+@page "/staff"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using HowToSoftware.Infrastructure.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.Extensions.Options
+@using System.Security.Claims
+@using System.Security.Cryptography
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IUserRepository UserRepository
+@inject IInviteRepository InviteRepository
+@inject IEmailService EmailService
+@inject ISettingsService SettingsService
+@inject IOptions<MailSettings> MailOptions
+@inject RoleManager<Role> RoleManager
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Staff — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Staff</h1>
+    <button class="btn btn-primary" @onclick="ShowInviteModal">
+        <i class="bi bi-person-plus-fill me-1"></i>Invite staff
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+        <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Role</label>
+                <select class="form-select form-select-sm" @bind="roleFilter" @bind:after="ApplyFilters">
+                    <option value="">All roles</option>
+                    <option value="Owner">Owner</option>
+                    <option value="Administrator">Administrator</option>
+                    <option value="Editor">Editor</option>
+                    <option value="Author">Author</option>
+                    <option value="Contributor">Contributor</option>
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by name or email…"
+                       @bind="searchQuery" @bind:after="ApplyFilters" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Staff -->
+@if (allStaff is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <h5 class="text-muted mb-3">Active staff</h5>
+
+    @if (filteredStaff.Count == 0)
+    {
+        <div class="card mb-4">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-person-badge display-4 d-block mb-2"></i>
+                No staff found.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 mb-4">
+            @foreach (var user in filteredStaff)
+            {
+                <div class="col">
+                    <div class="card h-100 staff-card" @onclick="() => NavigateToEdit(user.Id)" style="cursor: pointer">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="staff-avatar">
+                                @if (!string.IsNullOrEmpty(user.ProfileImage))
+                                {
+                                    <img src="@user.ProfileImage" alt="@user.Name" class="rounded-circle" width="48" height="48" />
+                                }
+                                else
+                                {
+                                    <div class="avatar-placeholder rounded-circle d-flex align-items-center justify-content-center" style="width:48px;height:48px;background:#6c757d;color:#fff;font-size:1.2rem">
+                                        @(user.Name?.Length > 0 ? char.ToUpper(user.Name[0]) : '?')
+                                    </div>
+                                }
+                            </div>
+                            <div class="flex-grow-1 min-w-0">
+                                <div class="fw-semibold text-truncate">@user.Name</div>
+                                <div class="text-muted small text-truncate">@user.Email</div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                @{ var roleName = GetRoleName(user); }
+                                <span class="badge @GetRoleBadgeClass(roleName)">@roleName</span>
+                                @if (user.Id != currentUserId && roleName != "Owner")
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" title="Send password reset"
+                                            @onclick="() => ConfirmResetPassword(user)" @onclick:stopPropagation>
+                                        <i class="bi bi-key"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Pending Invites -->
+    @if (invites.Count > 0)
+    {
+        <h5 class="text-muted mb-3">Invited staff</h5>
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Sent</th>
+                            <th>Status</th>
+                            <th style="width: 120px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var invite in invites)
+                        {
+                            <tr>
+                                <td>@invite.Email</td>
+                                <td><span class="badge @GetRoleBadgeClass(invite.Role.Name!)">@invite.Role.Name</span></td>
+                                <td class="text-muted small">@invite.CreatedAt.ToString("MMM d, yyyy")</td>
+                                <td>
+                                    @if (IsExpired(invite))
+                                    {
+                                        <span class="badge bg-warning text-dark">Expired</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-info">Pending</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-primary me-1" title="Resend invite"
+                                            @onclick="() => ResendInviteAsync(invite)" @onclick:stopPropagation>
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" title="Revoke invite"
+                                            @onclick="() => ConfirmRevokeInvite(invite)" @onclick:stopPropagation>
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <div class="mt-3">
+        <small class="text-muted">@filteredStaff.Count staff member(s)@(invites.Count > 0 ? $", {invites.Count} pending invite(s)" : "")</small>
+    </div>
+}
+
+<!-- Invite Modal -->
+@if (showInviteModal)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Invite a new staff user</h5>
+                    <button type="button" class="btn-close" @onclick="() => showInviteModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrEmpty(inviteError))
+                    {
+                        <div class="alert alert-danger py-2 small">
+                            <i class="bi bi-exclamation-circle me-1"></i>@inviteError
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Email address</label>
+                        <input type="email" class="form-control" @bind="inviteEmail" placeholder="staff@example.com" />
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Role</label>
+                        <select class="form-select" @bind="inviteRoleId">
+                            <option value="">Select a role…</option>
+                            @foreach (var role in availableRoles)
+                            {
+                                <option value="@role.Id">@role.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showInviteModal = false">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SendInviteAsync" disabled="@sendingInvite">
+                        @if (sendingInvite) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <i class="bi bi-envelope me-1"></i>Send invitation
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Revoke Invite Confirmation Modal -->
+@if (showRevokeConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Revoke invitation</h5>
+                    <button type="button" class="btn-close" @onclick="() => showRevokeConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to revoke the invitation for <strong>@revokeTarget?.Email</strong>?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showRevokeConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="RevokeInviteAsync">
+                        <i class="bi bi-x-lg me-1"></i>Revoke
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Reset Password Confirmation Modal -->
+@if (showResetConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Send password reset</h5>
+                    <button type="button" class="btn-close" @onclick="() => showResetConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        Send a password-reset link to <strong>@resetTarget?.Email</strong>?
+                    </p>
+                    <p class="text-muted small mb-0">
+                        They'll receive a one-time link valid for 7 days that lets them choose a new password.
+                        Their existing password will continue to work until they complete the reset.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showResetConfirm = false" disabled="@sendingReset">Cancel</button>
+                    <button class="btn btn-primary" @onclick="ResetPasswordAsync" disabled="@sendingReset">
+                        @if (sendingReset) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <i class="bi bi-key me-1"></i>Send reset link
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // Data
+    private List<User>? allStaff;
+    private List<User> filteredStaff = [];
+    private List<Invite> invites = [];
+    private List<Role> availableRoles = [];
+    private string? currentUserId;
+
+    // Filters
+    private string roleFilter = "";
+    private string searchQuery = "";
+
+    // Status
+    private string? statusMessage;
+    private bool isError;
+
+    // Invite modal
+    private bool showInviteModal;
+    private string inviteEmail = "";
+    private string inviteRoleId = "";
+    private string? inviteError;
+    private bool sendingInvite;
+
+    // Revoke confirm
+    private bool showRevokeConfirm;
+    private Invite? revokeTarget;
+
+    // Reset password confirm
+    private bool showResetConfirm;
+    private User? resetTarget;
+    private bool sendingReset;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var auth = await AuthState;
+            currentUserId = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        }
+
+        var roles = RoleManager.Roles.OrderBy(r => r.Name).ToList();
+        // Don't allow inviting new Owners
+        availableRoles = roles.Where(r => r.Name != "Owner").ToList();
+
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        allStaff = await UserRepository.GetAllStaffAsync();
+        invites = await InviteRepository.GetAllAsync();
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (allStaff is null) return;
+
+        var filtered = allStaff.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(roleFilter))
+            filtered = filtered.Where(u => GetRoleName(u) == roleFilter);
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            filtered = filtered.Where(u =>
+                u.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                (u.Email?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        filteredStaff = filtered.ToList();
+    }
+
+    private static string GetRoleName(User user)
+    {
+        // Return the highest-priority role
+        var roleNames = user.RolesUsers.Select(ru => ru.Role.Name).ToHashSet();
+        if (roleNames.Contains("Owner")) return "Owner";
+        if (roleNames.Contains("Administrator")) return "Administrator";
+        if (roleNames.Contains("Editor")) return "Editor";
+        if (roleNames.Contains("Author")) return "Author";
+        if (roleNames.Contains("Contributor")) return "Contributor";
+        return "Unknown";
+    }
+
+    private static string GetRoleBadgeClass(string role) => role switch
+    {
+        "Owner" => "bg-danger",
+        "Administrator" => "bg-primary",
+        "Editor" => "bg-success",
+        "Author" => "bg-info",
+        "Contributor" => "bg-secondary",
+        _ => "bg-secondary",
+    };
+
+    private static bool IsExpired(Invite invite)
+    {
+        var expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(invite.Expires);
+        return expiresAt < DateTimeOffset.UtcNow;
+    }
+
+    // --- Invite ---
+
+    private void ShowInviteModal()
+    {
+        inviteEmail = "";
+        inviteRoleId = "";
+        inviteError = null;
+        showInviteModal = true;
+    }
+
+    private async Task SendInviteAsync()
+    {
+        inviteError = null;
+
+        if (string.IsNullOrWhiteSpace(inviteEmail) || !inviteEmail.Contains('@'))
+        {
+            inviteError = "Please enter a valid email address.";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(inviteRoleId))
+        {
+            inviteError = "Please select a role.";
+            return;
+        }
+
+        // Check if user already exists as staff
+        var existingUser = await UserRepository.GetByEmailAsync(inviteEmail.Trim());
+        if (existingUser is not null && allStaff?.Any(s => s.Id == existingUser.Id) == true)
+        {
+            inviteError = "A staff user with this email already exists.";
+            return;
+        }
+
+        // Check if invite already pending
+        var existingInvite = await InviteRepository.GetByEmailAsync(inviteEmail.Trim());
+        if (existingInvite is not null)
+        {
+            inviteError = "An invitation has already been sent to this email.";
+            return;
+        }
+
+        sendingInvite = true;
+        try
+        {
+            var token = GenerateSecureToken();
+            var invite = new Invite
+            {
+                Id = Guid.NewGuid().ToString("N")[..24],
+                RoleId = inviteRoleId,
+                Status = "pending",
+                Token = token,
+                Email = inviteEmail.Trim(),
+                Expires = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeMilliseconds(),
+                CreatedAt = DateTime.UtcNow,
+            };
+
+            await InviteRepository.AddAsync(invite);
+            try
+            {
+                await SendInviteEmailAsync(invite);
+            }
+            catch
+            {
+                // Roll back the invite row so the list isn't polluted with
+                // "Pending" entries that never actually went out.
+                try { await InviteRepository.DeleteAsync(invite.Id); } catch { /* best-effort */ }
+                throw;
+            }
+
+            showInviteModal = false;
+            statusMessage = $"Invitation sent to {invite.Email}.";
+            isError = false;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            inviteError = $"Failed to send invitation: {ex.Message}";
+        }
+        finally
+        {
+            sendingInvite = false;
+        }
+    }
+
+    private async Task ResendInviteAsync(Invite invite)
+    {
+        try
+        {
+            // Generate a new token and extend expiry
+            invite.Token = GenerateSecureToken();
+            invite.Expires = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeMilliseconds();
+            invite.UpdatedAt = DateTime.UtcNow;
+            await InviteRepository.UpdateAsync(invite);
+
+            await SendInviteEmailAsync(invite);
+
+            statusMessage = $"Invitation resent to {invite.Email}.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to resend invitation: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    private void ConfirmRevokeInvite(Invite invite)
+    {
+        revokeTarget = invite;
+        showRevokeConfirm = true;
+    }
+
+    private async Task RevokeInviteAsync()
+    {
+        if (revokeTarget is null) return;
+
+        await InviteRepository.DeleteAsync(revokeTarget.Id);
+        showRevokeConfirm = false;
+        statusMessage = $"Invitation for {revokeTarget.Email} revoked.";
+        isError = false;
+        revokeTarget = null;
+        await LoadDataAsync();
+    }
+
+    private void ConfirmResetPassword(User user)
+    {
+        resetTarget = user;
+        showResetConfirm = true;
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (resetTarget is null) return;
+
+        sendingReset = true;
+        try
+        {
+            // Pick the user's existing role (skip Owner — handled by the UI gate as well).
+            var roleName = GetRoleName(resetTarget);
+            var role = availableRoles.FirstOrDefault(r => r.Name == roleName)
+                       ?? availableRoles.FirstOrDefault();
+            if (role is null)
+            {
+                statusMessage = "Cannot send reset: no roles available.";
+                isError = true;
+                showResetConfirm = false;
+                return;
+            }
+
+            // Issue a fresh single-use token via the existing Invite mechanism. The
+            // AcceptInvite handler treats an existing email as "finish setup / reset
+            // password," so this doubles as a password-reset link.
+            var invite = new Invite
+            {
+                Id = Guid.NewGuid().ToString("N")[..24],
+                RoleId = role.Id,
+                Status = "pending",
+                Token = GenerateSecureToken(),
+                Email = resetTarget.Email!,
+                Expires = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeMilliseconds(),
+                CreatedAt = DateTime.UtcNow,
+            };
+            invite.Role = role;
+
+            await InviteRepository.AddAsync(invite);
+            try
+            {
+                await SendPasswordResetEmailAsync(invite, resetTarget.Name ?? resetTarget.Email!);
+            }
+            catch
+            {
+                try { await InviteRepository.DeleteAsync(invite.Id); } catch { /* best-effort */ }
+                throw;
+            }
+
+            statusMessage = $"Password reset link sent to {resetTarget.Email}.";
+            isError = false;
+            showResetConfirm = false;
+            resetTarget = null;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to send reset: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            sendingReset = false;
+        }
+    }
+
+    private async Task SendPasswordResetEmailAsync(Invite invite, string recipientName)
+    {
+        var siteTitle = await SettingsService.GetStringAsync("title") ?? "HowToSoftware";
+        var siteUrl = await SettingsService.GetStringAsync("url") ?? "https://howtoosoftware.com";
+        var resetUrl = $"{siteUrl.TrimEnd('/')}/ghost/account/accept-invite?token={Uri.EscapeDataString(invite.Token)}";
+
+        var subject = $"Reset your password for {siteTitle}";
+        var html = $"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2>Reset your password</h2>
+                <p>Hi {recipientName},</p>
+                <p>An administrator has requested a password reset for your <strong>{siteTitle}</strong> staff account.</p>
+                <p>
+                    <a href="{resetUrl}" style="display: inline-block; padding: 12px 24px; background: #7c3aed; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                        Choose a new password
+                    </a>
+                </p>
+                <p style="color: #6b7280; font-size: 14px;">This link expires in 7 days. If you didn't expect this email, you can safely ignore it — your existing password will continue to work.</p>
+            </div>
+            """;
+
+        var fromAddress = await ResolveFromAddressAsync(siteUrl);
+        var result = await EmailService.SendAsync(new EmailMessage
+        {
+            From = $"{siteTitle} <{fromAddress}>",
+            To = invite.Email,
+            Subject = subject,
+            Html = html,
+        });
+
+        if (!result.Success)
+        {
+            throw new InvalidOperationException(
+                $"Mailgun rejected the reset email to {invite.Email}: {result.ErrorMessage ?? "unknown error"}");
+        }
+    }
+
+    private async Task SendInviteEmailAsync(Invite invite)
+    {
+        var siteTitle = await SettingsService.GetStringAsync("title") ?? "HowToSoftware";
+        var siteUrl = await SettingsService.GetStringAsync("url") ?? "https://howtoosoftware.com";
+        // Admin app is reverse-proxied at /ghost/* (see Caddyfile.edge + Program.cs UsePathBase).
+        var inviteUrl = $"{siteUrl.TrimEnd('/')}/ghost/account/accept-invite?token={Uri.EscapeDataString(invite.Token)}";
+
+        var subject = $"You've been invited to join {siteTitle} as staff";
+        var html = $"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2>You've been invited to join {siteTitle}</h2>
+                <p>You've been invited to join <strong>{siteTitle}</strong> as <strong>{invite.Role?.Name ?? "staff"}</strong>.</p>
+                <p>
+                    <a href="{inviteUrl}" style="display: inline-block; padding: 12px 24px; background: #7c3aed; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                        Accept invitation
+                    </a>
+                </p>
+                <p style="color: #6b7280; font-size: 14px;">This invitation expires in 7 days.</p>
+            </div>
+            """;
+
+        var fromAddress = await ResolveFromAddressAsync(siteUrl);
+        var result = await EmailService.SendAsync(new EmailMessage
+        {
+            From = $"{siteTitle} <{fromAddress}>",
+            To = invite.Email,
+            Subject = subject,
+            Html = html,
+        });
+
+        if (!result.Success)
+        {
+            throw new InvalidOperationException(
+                $"Mailgun rejected the invite to {invite.Email}: {result.ErrorMessage ?? "unknown error"}");
+        }
+    }
+
+    /// <summary>
+    /// Resolves the From address for outbound mail. Order of preference:
+    ///   1. members_support_address setting (admin-configurable)
+    ///   2. MailSettings.DefaultFrom (appsettings/env)
+    ///   3. noreply@{MailgunDomain} — guaranteed to align with Mailgun's verified
+    ///      sending domain so SPF + DKIM pass
+    ///   4. noreply@{site host} — last-resort fallback (will likely spam-fold)
+    /// </summary>
+    private async Task<string> ResolveFromAddressAsync(string siteUrl)
+    {
+        var configured = await SettingsService.GetStringAsync("members_support_address");
+        if (!string.IsNullOrWhiteSpace(configured)) return configured!;
+
+        var defaultFrom = MailOptions.Value.DefaultFrom;
+        if (!string.IsNullOrWhiteSpace(defaultFrom)) return defaultFrom;
+
+        var mailgunDomain = MailOptions.Value.MailgunDomain;
+        if (!string.IsNullOrWhiteSpace(mailgunDomain)) return $"noreply@{mailgunDomain}";
+
+        return $"noreply@{new Uri(siteUrl).Host}";
+    }
+
+    private static string GenerateSecureToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes);
+    }
+
+    private void NavigateToEdit(string userId) => Navigation.NavigateTo($"staff/{userId}/edit");
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

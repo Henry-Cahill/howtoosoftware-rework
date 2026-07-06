@@ -1,0 +1,150 @@
+{{!< default}}
+
+{{!-- 500 Internal Server Error - The classic "This is Fine" moment --}}
+
+<style>
+    .error-page {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+    }
+    
+    [data-theme="dark"] .error-page {
+        background: linear-gradient(135deg, #1a1a2e 0%, #3d1f1f 100%);
+    }
+    
+    .error-container { max-width: 600px; }
+    
+    .error-gif {
+        width: 100%;
+        max-width: 400px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        animation: shake 0.5s ease-in-out infinite;
+    }
+    
+    @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px) rotate(-1deg); }
+        75% { transform: translateX(5px) rotate(1deg); }
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+    
+    .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .error-btn-primary {
+        background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+        color: white;
+    }
+    
+    .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(229, 62, 62, 0.4);
+        color: white;
+    }
+    
+    .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+    
+    .fire-emoji {
+        font-size: 3rem;
+        animation: flicker 0.3s ease-in-out infinite alternate;
+        display: inline-block;
+    }
+    
+    @keyframes flicker {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0.8; transform: scale(1.1); }
+    }
+    
+    .dev-panic {
+        margin-top: 2rem;
+        padding: 1rem;
+        background: rgba(229, 62, 62, 0.1);
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        color: #e53e3e;
+    }
+</style>
+
+<section class="error-page outer">
+    <div class="error-container inner">
+        {{!-- This is Fine dog in burning room --}}
+        <img 
+            src="https://media.giphy.com/media/QMHoU66sBXqqLqYvGO/giphy.gif" 
+            alt="This is Fine - Everything is okay" 
+            class="error-gif"
+        />
+        
+        <h1 class="error-code">500</h1>
+        <h2 class="error-title">Internal Server Error</h2>
+        <p class="error-description">
+            <span class="fire-emoji">🔥</span> This is fine. <span class="fire-emoji">🔥</span><br>
+            Our servers are just having a small existential crisis.
+        </p>
+        
+        <div class="error-actions">
+            <a href="{{@site.url}}" class="error-btn error-btn-primary">
+                🚒 Escape the Fire
+            </a>
+            <a href="javascript:location.reload()" class="error-btn error-btn-secondary">
+                🔄 Try Again (Bravely)
+            </a>
+        </div>
+        
+        <div class="dev-panic">
+            > ERROR: Coffee levels critical<br>
+            > ALERT: Developer paged<br>
+            > STATUS: Panicking internally
+        </div>
+    </div>
+</section>

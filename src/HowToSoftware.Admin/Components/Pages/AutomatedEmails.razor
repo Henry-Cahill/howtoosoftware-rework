@@ -1,0 +1,248 @@
+@page "/automated-emails"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using HowToSoftware.Admin.Services
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IAutomatedEmailService AutomatedEmailService
+@rendermode InteractiveServer
+
+<PageTitle>Automated Emails — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Automated Emails</h1>
+    <a href="automated-emails/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New automated email</a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Status</label>
+                <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ApplyFilters">
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by name…"
+                       @bind="searchQuery" @bind:after="ApplyFilters" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Automated Emails Table -->
+@if (allEmails is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (filteredEmails.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-lightning display-4 d-block mb-2"></i>
+            No automated emails found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" @onclick='() => ToggleSort("name")'>
+                            Name
+                            @if (sortColumn == "name") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Slug</th>
+                        <th>Trigger</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("sent")'>
+                            Sent
+                            @if (sortColumn == "sent") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Delivery</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("openrate")'>
+                            Open rate
+                            @if (sortColumn == "openrate") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Status</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("created")'>
+                            Created
+                            @if (sortColumn == "created") { <i class="bi @SortIcon"></i> }
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var ae in filteredEmails)
+                    {
+                        <tr>
+                            <td>
+                                <a href="automated-emails/@ae.Id/edit" class="fw-medium text-decoration-none text-body">
+                                    @ae.Name
+                                </a>
+                            </td>
+                            <td class="text-muted small">@ae.Slug</td>
+                            <td class="text-muted small">
+                                @{
+                                    var triggerDesc = AutomatedEmailTriggerCatalog.GetDescription(ae.Slug);
+                                }
+                                @if (triggerDesc is not null)
+                                {
+                                    <span>@triggerDesc</span>
+                                }
+                                else
+                                {
+                                    <span class="fst-italic" title="Fired programmatically using this slug.">Custom trigger</span>
+                                }
+                            </td>
+                            <td class="text-muted small">
+                                @{
+                                    var stats = statsByEmail.GetValueOrDefault(ae.Id) ?? AutomatedEmailStatistics.Empty;
+                                }
+                                <a href="automated-emails/@ae.Id/recipients" class="text-decoration-none">
+                                    @stats.Sent
+                                </a>
+                            </td>
+                            <td class="small">
+                                <span class="badge bg-success-subtle text-success-emphasis me-1" title="Delivered">
+                                    <i class="bi bi-check2-circle me-1"></i>@stats.Delivered
+                                </span>
+                                <span class="badge bg-primary-subtle text-primary-emphasis me-1" title="Opened">
+                                    <i class="bi bi-envelope-open me-1"></i>@stats.Opened
+                                </span>
+                                <span class="badge bg-info-subtle text-info-emphasis me-1" title="Clicked">
+                                    <i class="bi bi-link-45deg me-1"></i>@stats.Clicked
+                                </span>
+                                @if (stats.Bounced > 0)
+                                {
+                                    <span class="badge bg-warning-subtle text-warning-emphasis me-1" title="Bounced">
+                                        <i class="bi bi-arrow-return-left me-1"></i>@stats.Bounced
+                                    </span>
+                                }
+                                @if (stats.Failed > 0)
+                                {
+                                    <span class="badge bg-danger-subtle text-danger-emphasis" title="Failed at send time">
+                                        <i class="bi bi-x-circle me-1"></i>@stats.Failed
+                                    </span>
+                                }
+                            </td>
+                            <td class="text-muted small">
+                                @if (stats.Delivered > 0)
+                                {
+                                    <span>@(stats.OpenRate.ToString("P1"))</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @(ae.Status == "active" ? "bg-success" : "bg-secondary")">
+                                    @ae.Status
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                @ae.CreatedAt.ToString("MMM d, yyyy")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filteredEmails.Count automated email(s)</small>
+    </div>
+}
+
+@code {
+    private List<AutomatedEmail>? allEmails;
+    private List<AutomatedEmail> filteredEmails = [];
+    private Dictionary<string, int> recipientCounts = [];
+    private Dictionary<string, AutomatedEmailStatistics> statsByEmail = [];
+
+    // Filters
+    private string statusFilter = "";
+    private string searchQuery = "";
+
+    // Sorting
+    private string sortColumn = "name";
+    private bool sortAscending = true;
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        allEmails = await AutomatedEmailService.GetAllAsync();
+
+        var ids = allEmails.Select(e => e.Id).ToList();
+        statsByEmail = await AutomatedEmailService.GetStatisticsBatchAsync(ids);
+
+        recipientCounts = [];
+        foreach (var ae in allEmails)
+        {
+            recipientCounts[ae.Id] = statsByEmail.TryGetValue(ae.Id, out var s) ? s.Sent : 0;
+        }
+
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (allEmails is null) return;
+
+        var filtered = allEmails.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(statusFilter))
+            filtered = filtered.Where(e => e.Status == statusFilter);
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            filtered = filtered.Where(e => e.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        filtered = sortColumn switch
+        {
+            "sent" => sortAscending
+                ? filtered.OrderBy(e => recipientCounts.GetValueOrDefault(e.Id, 0))
+                : filtered.OrderByDescending(e => recipientCounts.GetValueOrDefault(e.Id, 0)),
+            "openrate" => sortAscending
+                ? filtered.OrderBy(e => (statsByEmail.GetValueOrDefault(e.Id) ?? AutomatedEmailStatistics.Empty).OpenRate)
+                : filtered.OrderByDescending(e => (statsByEmail.GetValueOrDefault(e.Id) ?? AutomatedEmailStatistics.Empty).OpenRate),
+            "created" => sortAscending
+                ? filtered.OrderBy(e => e.CreatedAt)
+                : filtered.OrderByDescending(e => e.CreatedAt),
+            _ => sortAscending
+                ? filtered.OrderBy(e => e.Name)
+                : filtered.OrderByDescending(e => e.Name),
+        };
+
+        filteredEmails = filtered.ToList();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column is "name";
+        }
+        ApplyFilters();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

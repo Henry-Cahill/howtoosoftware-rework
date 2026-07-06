@@ -1,0 +1,1722 @@
+               ================================================================================
+  HOWTOSOFTWARE ADMIN PANEL V.2 — REWORK ENHANCEMENT PLAN
+  Generated: 2026-04-14
+  Scope: Every admin page — UX overhaul, missing features, polish
+================================================================================
+
+  LEGEND
+    [P0] Must-have — core functionality gap or broken UX
+    [P1] Should-have — significant improvement, schedule this cycle
+    [P2] Nice-to-have — polish, convenience, defer if needed
+    Priority order within each page: P0 → P1 → P2
+
+  NAMING
+    Each item: {Page}.{Number}  (e.g. DASH.1, POST.4, MEM.2)
+
+
+================================================================================
+  1. DASHBOARD (Home.razor)
+================================================================================
+
+[x] DASH.1  [P0] ADD TREND INDICATORS TO KPI CARDS
+     Currently: Four static numbers (posts, members, pages, newsletters).
+     Enhance: Show ▲/▼ percentage change vs prior period. Add sparkline
+     mini-charts (7-day trend) inside each card. Pull data from analytics
+     rollup tables (AnalyticsDailyRollup has pageviews/visitors/sessions).
+
+[x] DASH.2  [P0] ADD QUICK-GLANCE ANALYTICS ROW
+     Currently: No traffic data on the dashboard at all.
+     Enhance: Add a compact row below KPI cards showing today's visitors,
+     pageviews, and top page. Link through to full Analytics page.
+
+[x] DASH.3  [P1] MAKE KPI CARDS CLICKABLE / DRILL-DOWN
+     Currently: Cards are display-only.
+     Enhance: Click "Published Posts" → navigate to Posts page filtered to
+     published. Click "Total Members" → Members page. Same for Pages and
+     Newsletters.
+
+[x] DASH.4  [P1] ADD RECENT ACTIVITY FEED
+     Currently: Shows recent posts and recent members in static tables.
+     Enhance: Merge into a single unified activity timeline showing:
+     new post published, new member signup, new comment, newsletter sent,
+     donation received. Show timestamp, icon, and action summary.
+     Source from existing event tables (MembersCreatedEvents, etc).
+
+[x] DASH.5  [P1] ADD QUICK ACTIONS TOOLBAR
+     Currently: Quick links exist but are minimal.
+     Enhance: Add prominent action buttons: "New Post", "New Page",
+     "Send Newsletter", "View Site" (opens public site in new tab).
+
+[x] DASH.6  [P2] ADD SYSTEM HEALTH WIDGET
+     Show database connection status, Stripe connectivity, Mailgun status,
+     disk usage for images, last backup timestamp. Pull from health check
+     endpoints already defined in HealthChecks/.
+
+[x] DASH.7  [P2] ADD SCHEDULED CONTENT WIDGET
+     Show upcoming scheduled posts/pages with countdown timers.
+     Help editors see what's about to auto-publish.
+
+
+================================================================================
+  2. POSTS (Posts.razor + PostEditor.razor)
+================================================================================
+
+[x] POST.1  [P0] ADD INLINE PREVIEW THUMBNAIL IN LIST
+     Currently: Posts list is text-only (title, status, tags, date).
+     Enhance: Show feature image thumbnail (40x40) in the first column.
+     Fall back to a placeholder icon if no image.
+
+[x] POST.2  [P0] ADD KEYBOARD SHORTCUTS TO EDITOR
+     Currently: No keyboard shortcut support.
+     Enhance: Ctrl+S to save/update, Ctrl+Shift+P to publish, Ctrl+K to
+     insert link, Escape to close settings sidebar. Register via JS interop.
+
+[x] POST.3  [P1] ADD WORD COUNT AND READING TIME DISPLAY
+     Currently: No word count visible while editing.
+     Enhance: Show live word count and estimated reading time in the editor
+     footer bar. Update on every content change via Lexical callback.
+
+[x] POST.4  [P1] ADD AUTOSAVE WITH DRAFT RECOVERY
+     Currently: Unsaved changes indicator exists but no autosave.
+     Enhance: Autosave every 60 seconds when changes are detected. Store
+     to server as draft. Show "Last saved at [time]" indicator. On page
+     load, detect if a newer autosave exists and offer recovery.
+
+[x] POST.5  [P1] ADD REVISION HISTORY
+     Currently: No version tracking.
+     Enhance: Store snapshots on each explicit save. Show revision list in
+     sidebar with timestamps. Allow viewing and restoring previous versions.
+     New table: post_revisions (id, post_id, lexical_json, created_at,
+     created_by).
+
+[x] POST.6  [P1] IMPROVE TAG SELECTION UX
+     Currently: Multi-select dropdown for tags.
+     Enhance: Replace with a tokenized input (type-ahead with pill badges).
+     Allow creating new tags inline by typing a name that doesn't exist.
+
+[x] POST.7  [P1] ADD DUPLICATE POST ACTION
+     Currently: No way to clone a post.
+     Enhance: Add "Duplicate" button that creates a new draft with the same
+     content, tags, and settings but a new title suffix " (Copy)".
+
+[x] POST.9  [P2] ADD DRAG-AND-DROP IMAGE UPLOAD IN EDITOR
+     Currently: Feature image requires explicit upload button.
+     Enhance: Allow drag-and-drop anywhere in the Lexical editor area to
+     insert inline images. Upload to ImageStorageService and insert URL.
+
+[x] POST.10 [P2] BULK STATUS CHANGE IN LIST
+     Currently: Bulk actions are limited to Feature/Unfeature/Delete.
+     Enhance: Add "Move to Draft", "Publish Selected" bulk actions.
+
+
+================================================================================
+  3. PAGES (AdminPages.razor + PageEditor.razor)
+================================================================================
+
+[x] PAGE.1  [P1] DIFFERENTIATE PAGE EDITOR FROM POST EDITOR
+     Currently: Nearly identical to PostEditor with no page-specific features.
+     Enhance: Remove tag assignment (pages don't use tags in Ghost). Add
+     "Show in navigation" toggle that auto-adds to primary/secondary nav.
+     Add template selector (default, full-width, landing page).
+
+[x] PAGE.2  [P1] ADD PAGE TREE / HIERARCHY VIEW
+     Currently: Flat list only.
+     Enhance: Add optional hierarchy view showing parent-child relationships.
+     Allow drag-to-reorder for sort order. Useful for documentation-style
+     sites.
+
+[x] PAGE.3  [P2] ADD PAGE PREVIEW WITH LAYOUT
+     Currently: Preview modal shows raw HTML.
+     Enhance: Render preview in an iframe using the actual site layout/theme
+     so editors see the real output including navigation and footer.
+
+
+================================================================================
+  4. TAGS (Tags.razor + TagEditor.razor)
+================================================================================
+
+[x] TAG.1   [P0] ADD TAG MERGE FUNCTIONALITY
+     Currently: No way to merge duplicate tags.
+     Enhance: Select two tags → "Merge" action. Reassign all posts from
+     source tag to target tag, then delete the source. Critical for
+     content hygiene after import.
+
+[x] TAG.2   [P1] ADD TAG USAGE CHART
+     Currently: Only shows post count number.
+     Enhance: In the tag editor sidebar, show a small bar chart of posts
+     per month using this tag (last 6 months). Helps identify trending vs
+     stale tags.
+
+[x] TAG.3   [P1] ADD COLOR PREVIEW IN LIST
+     Currently: Small color dot only.
+     Enhance: Show the accent color as a background tint on the tag row or
+     as a colored left-border accent strip. Makes the list scannable.
+
+[x] TAG.4   [P2] ADD DRAG-TO-REORDER FOR TAG SORT ORDER
+     Allow manual ordering of tags for display priority. Add sort_order
+     column if not present.
+
+
+================================================================================
+  5. COLLECTIONS (Collections.razor + CollectionEditor.razor)
+================================================================================
+
+[x] COLL.1  [P0] ADD NQL FILTER BUILDER UI
+     Currently: Automatic collections require typing raw Ghost NQL syntax.
+     Enhance: Add a visual query builder with dropdowns for field (tag,
+     author, status, featured), operator (is, is not, contains), and value
+     (dropdown of existing tags/authors). Generate NQL string from the UI.
+
+[x] COLL.2  [P1] ADD LIVE PREVIEW OF MATCHED POSTS
+     Currently: No way to see which posts match an automatic filter.
+     Enhance: Show a live preview list below the filter input that updates
+     as the filter expression changes. Limit to first 10 matches.
+
+[x] COLL.3  [P1] ADD DRAG-AND-DROP REORDER FOR MANUAL COLLECTIONS
+     Currently: Up/Down buttons for manual ordering.
+     Enhance: Replace with drag-and-drop (SortableJS via JS interop).
+     Much faster for large reordering operations.
+     Status: ✓ IMPLEMENTED — Drag-drop with SortableJS via JSInterop
+
+[x] COLL.4  [P2] ADD COLLECTION COVER IMAGE
+     Show a feature image on the collection card for visual distinction.
+     Status: ✓ IMPLEMENTED — Cover image upload + preview on collection cards
+
+
+================================================================================
+  6. SNIPPETS (Snippets.razor + SnippetEditor.razor)
+================================================================================
+
+[x] SNIP.1  [P1] ADD COPY-TO-CLIPBOARD FOR SNIPPET CONTENT
+     Currently: Must manually select and copy JSON.
+     Enhance: Add a "Copy" button next to each snippet in the list and
+     in the editor. Copy the Lexical JSON to clipboard.
+
+[x] SNIP.2  [P1] ADD SNIPPET PREVIEW
+     Currently: Only raw JSON visible.
+     Enhance: Render the Lexical JSON as HTML preview below the input.
+     Helps editors understand what the snippet produces.
+
+[x] SNIP.3  [P2] ADD SNIPPET USAGE TRACKING
+     Show which posts reference each snippet. Add a "Used in X posts"
+     count to the list view.
+
+
+================================================================================
+  7. REDIRECTS (Redirects.razor + RedirectEditor.razor)
+================================================================================
+
+[x] REDIR.1 [P0] ADD BULK IMPORT FOR REDIRECTS
+     Currently: One-by-one creation only.
+     Enhance: Add CSV import (from_url, to_url columns). Essential for
+     site migrations with hundreds of URL changes.
+
+[x] REDIR.2 [P1] ADD REDIRECT HIT COUNTER
+     Currently: No analytics on redirect usage.
+     Enhance: Track and display how many times each redirect has been
+     triggered. Add a "Hits" column to the list. New column: hit_count
+     on the redirects table.
+
+[x] REDIR.3 [P1] ADD REGEX REDIRECT SUPPORT
+     Currently: Exact path match only.
+     Enhance: Add a "Type" toggle (Exact / Regex). Regex redirects match
+     patterns like /old-blog/(.*) → /blog/$1. Update
+     GhostUrlRedirectMiddleware to support regex matching.
+     Status: ✓ IMPLEMENTED — is_regex column on redirects table; entity
+     + EF mapping with default false; CreateRedirectRequest.IsRegex and
+     UpdateRedirectRequest.IsRegex?; RedirectService.MatchAsync resolves
+     exact (indexed) first then regex rows with a 100ms RegexMatchTimeout
+     guard (ReDoS) and match.Result(To) for $1/$n backreferences; pattern
+     validated on create/update; Program.cs DB-redirect middleware calls
+     MatchAsync; RedirectEditor.razor has Exact/Regex toggle with example
+     hints; Redirects.razor list shows a "regex" badge; tests cover regex
+     match, capture-group substitution, invalid pattern, and timeout.
+
+[x] REDIR.4 [P2] ADD REDIRECT CHAIN DETECTION
+     Warn if creating A→B when B→C already exists (redirect chain).
+     Suggest creating A→C directly instead.
+     Status: ✓ IMPLEMENTED — IRedirectService.DetectChainAsync(from, to,
+     excludeId?) walks existing exact (non-regex) redirects up to 10 hops,
+     returns RedirectChainInfo { IntermediateFrom, IntermediateTo,
+     SuggestedTarget, HopCount, CycleDetected } or null. Regex rows are
+     ignored (target depends on request path). RedirectEditor.razor calls
+     it on From/To change and on type=Exact toggle, shows a yellow warning
+     alert with "Use suggested target" button that flattens To→
+     SuggestedTarget; cycles render a separate cycle warning. The current
+     redirect's own id is excluded when editing. Tests cover: no chain,
+     single hop, multi-hop flatten, cycle between existing rows, cycle
+     back to proposed source, regex ignored, excludeId, empty inputs.
+
+
+================================================================================
+  8. MENTIONS (Mentions.razor)
+================================================================================
+
+[x] MENT.1  [P1] ADD MENTION DETAIL MODAL
+     Currently: Flat table with truncated data.
+     Enhance: Click a mention to open a detail modal showing the full
+     source content excerpt, author info, favicon, verification details,
+     and the specific paragraph that links to the target.
+     Status: ✓ IMPLEMENTED — Mentions.razor row click (and dedicated
+     "view" button) opens a scrollable modal showing favicon + source
+     title, verified/unverified badge, received timestamp, resource type,
+     full Source/Target URLs (linked), author, site title, resource id,
+     featured image, full SourceExcerpt blockquote, and a "linking
+     paragraph" extracted from the payload's source HTML by regex-matching
+     the <p>…href="{target}"…</p> with a 200ms ReDoS guard and HTML tags
+     stripped to plain text. Raw payload is shown pretty-printed in a
+     collapsible <details>. Re-verify and Delete actions available from
+     the modal footer; row checkbox/action buttons stop propagation so
+     they don't open the modal.
+
+[x] MENT.2  [P1] ADD MENTION APPROVAL WORKFLOW
+     Currently: All verified mentions appear automatically.
+     Enhance: Add Pending/Approved/Rejected status. New mentions start as
+     Pending. Admin reviews and approves/rejects. Only approved mentions
+     render on the public site.
+     Status: ✓ IMPLEMENTED — Mention.Status column ("pending" | "approved"
+     | "rejected") with MentionStatus constants. AppDbContext maps
+     status NVARCHAR(20) with default "approved" + index. Migration
+     add-mention-status.sql backfills existing rows to "approved".
+     IMentionService gains ApproveAsync/RejectAsync; MentionService.
+     ReceiveAsync sets new mentions to "pending"; existing rows keep
+     their status on re-receive. GetByTargetAsync / GetByResourceAsync
+     now filter to Verified && !Deleted && Status == "approved", so only
+     approved mentions render on the public site (Post.cshtml,
+     WebmentionController GET). Mentions.razor adds an Approval filter
+     dropdown (All/Pending/Approved/Rejected), an Approval column with
+     colored badges, single-row Approve/Reject buttons in the row action
+     group and modal footer (hidden for the current state), and bulk
+     Approve/Reject in the selection toolbar. WebmentionController GET
+     response includes status. Tests cover ReceiveAsync starts pending,
+     ApproveAsync/RejectAsync state changes, not-found errors, and that
+     GetByTargetAsync excludes pending and rejected mentions.
+
+[x] MENT.3  [P2] ADD MENTION NOTIFICATIONS
+     When a new mention is received, show a notification badge on the
+     Mentions nav item and optionally send an email notification to admins
+     (controlled by staff notification preferences).
+     Status: ✓ IMPLEMENTED — IMentionService.GetPendingCountAsync returns
+     the count of non-deleted, status="pending" rows; NavMenu.razor injects
+     IMentionService and renders a red Bootstrap pill badge ("99+" cap) on
+     the Mentions nav link, gated by the existing Owner/Administrator
+     AuthorizeView and refreshed on every page navigation (try/catch
+     swallows DB errors so the sidebar never breaks). MentionService now
+     also depends on IEmailService, ISettingsService and IOptions<MailSettings>
+     and, after persisting a NEW mention in ReceiveAsync (not on updates of
+     an existing source→target row), calls NotifyStaffOfNewMentionSafelyAsync
+     which queries db.Users joined with RolesUsers/Roles for users that are
+     active, have an email, hold role "Owner" or "Administrator", and have
+     User.MentionNotifications == true, then sends each one a transactional
+     email via IEmailService.SendAsync with subject "[{site}] New webmention
+     received" and an HTML body containing the verified/unverified badge,
+     pending-review status, source title/author/excerpt, encoded source +
+     target URLs, and a "Review in admin" button linking to /ghost/mentions.
+     All untrusted text is HtmlEncoded before composing the email. The whole
+     notification path is wrapped in nested try/catch + ILogger.LogWarning so
+     a Mailgun outage cannot break the public webmention endpoint. Tests
+     cover GetPendingCountAsync counting only pending, non-deleted rows
+     (ignoring approved/rejected/deleted) and returning 0 with no mentions;
+     existing tests for ReceiveAsync still pass because the FakeMentionService
+     in Core.Tests / Web.Tests was extended with the new method but does not
+     emit emails.
+
+
+================================================================================
+  9. ANALYTICS (Analytics.razor)
+================================================================================
+
+[x] ANAL.1  [P0] ADD REAL-TIME VISITOR MAP
+     Currently: Country data shown as bar chart only.
+     Enhance: Add an interactive world map visualization (e.g. Chart.js
+     geo or D3.js choropleth) showing visitor locations with color
+     intensity. Display on hover: country name, visitor count.
+     Status: ✓ IMPLEMENTED — New wwwroot/js/analytics-map.js exposes
+     window.analyticsMap.render(canvasId, data) using chartjs-chart-geo
+     4.3.4 (loaded from jsDelivr CDN) on top of the existing Chart.js
+     4.4.8 bundle. Map geometry is fetched once from world-atlas@2
+     (countries-50m.json TopoJSON) and cached in a module-level promise;
+     ChartGeo.topojson.feature() converts it to GeoJSON features.
+     GeoIpService returns ISO 3166-1 alpha-2 codes (e.g. "US"), so the
+     module embeds a static A2→ISO-numeric map (used to match world-atlas
+     numeric ids) and aggregates per-country visitor counts. The chart is
+     a 'choropleth' with equalEarth projection, no graticule, white-on-
+     dark borders, a 5-quantize color scale interpolating from card-bg
+     (#212529) to bootstrap primary (#0d6efd), legend hidden in favor of
+     a hover tooltip showing "{Country name}: {N} visitor(s)" with locale
+     number formatting. Analytics.razor adds a full-width 420px map card
+     below the Devices/Countries row and, in RenderCharts(), passes
+     countries.Where(c => !empty).Select(c => new { code, visitors }) to
+     analyticsMap.render. App.razor loads the geo plugin script before
+     analytics-charts.js and serves analytics-map.js from wwwroot/js.
+     DisposeAsync calls analyticsMap.destroy (try/catch) alongside the
+     existing analyticsCharts.destroyAll. Re-renders reuse the existing
+     chart instance via chart.update('none') and detect Blazor canvas
+     replacement by re-checking document.body.contains.
+
+[x] ANAL.2  [P1] ADD COMPARISON MODE
+     Currently: Single date range only.
+     Enhance: Allow comparing two date ranges side-by-side. Show KPI
+     delta (e.g. "Visitors: 150 vs 120, +25%"). Overlay comparison line
+     on the traffic chart in a dashed style.
+     Status: ✓ IMPLEMENTED — Analytics.razor adds a "Compare" toggle in
+     the date-range bar with three modes: "vs previous period" (equal-
+     length window ending at dateFrom), "vs same period last year"
+     (-1 year on both endpoints), and "Custom" (two date inputs).
+     RecomputeCompareDates() derives compareDateFrom/compareDateTo from
+     the active mode and main range; preset/from/to changes preserve
+     custom dates but auto-roll the previous/yearago windows.
+     LoadComparisonAsync() calls IAnalyticsDashboardService.
+     GetKpiSummaryAsync + GetTrafficTimeSeriesAsync for the comparison
+     window and stores kpiCompare / trafficTimeSeriesCompare; failures
+     surface a soft error and clear the comparison state without
+     breaking the page. Each KPI card renders a RenderDelta() fragment
+     under the value showing ▲/▼ icon, signed percentage (or percentage
+     points for bounce rate via absolute=true), and "vs prior" label,
+     colored text-success/text-danger with lowerIsBetter inverting the
+     polarity for bounce rate. RenderCharts() now builds the traffic
+     line chart's datasets dynamically: when comparison data is loaded,
+     two extra "(compare)" datasets for Pageviews and Visitors are
+     appended with borderDash:[6,4], translucent borders, and fill:false
+     so they overlay as dashed lines aligned by index to the current
+     period's labels. SignalR ReceiveDashboard handler also calls
+     LoadComparisonAsync after applying server payload so live updates
+     keep the comparison in sync.
+
+[x] ANAL.3  [P1] ADD CONTENT PERFORMANCE TABLE
+     Currently: Top Pages shows only URL path.
+     Enhance: Join with posts table to show post title, author, and
+     published date alongside views. Add avg time-on-page if available.
+     Sort by views, visitors, or engagement rate.
+     Status: ✓ IMPLEMENTED — TopPageRow record extended with optional
+     PostId / PostTitle / AuthorName / PublishedAt / AvgTimeOnPageSeconds
+     (default-null so existing call sites and SignalR payloads stay
+     compatible). AnalyticsDashboardService.GetTopPagesAsync rewritten as
+     an inline parameterized SQL (replacing the EXEC dbo.usp_TopPages
+     round-trip) that: (1) groups analytics_events by page_url_path for
+     pageviews + COUNT DISTINCT session_id, (2) takes TOP @Top by views,
+     (3) approximates avg time-on-page per path with
+     DATEDIFF(SECOND, ts, LEAD(ts) OVER (PARTITION BY session_id ORDER BY
+     ts)) clamped to 1..3600s to ignore tail/idle gaps, (4) OUTER APPLYs
+     the latest published post whose '/' + slug [+ '/'] matches the path,
+     and (5) LEFT JOINs posts_authors (sort_order=1) → users for the
+     primary author name. Analytics.razor moves Top Pages into its own
+     full-width "Content Performance — Top Pages" card with columns
+     Page/Post (post title bold + URL path muted, falls back to path
+     only), Author, Published (yyyy-MM-dd local), Views, Visitors, and
+     Avg Time. Column headers for Views / Visitors / Avg Time are
+     clickable; SetTopPagesSort toggles the SortedTopPages computed
+     enumerable (OrderBy[Descending] over Pageviews / UniqueVisitors /
+     AvgTimeOnPageSeconds, with nulls sorted last) and SortIcon renders
+     ↕ / ▲ / ▼ to indicate the active direction. Avg Time uses the
+     existing FormatDuration helper; missing values render an em dash.
+     Top Sources moved to its own row beneath. No DB migration required.
+
+[x] ANAL.4  [P1] ADD MEMBER VS ANONYMOUS BREAKDOWN TO TRAFFIC CHART
+     Currently: Traffic chart shows total pageviews and visitors.
+     Enhance: Add a third dataset line showing member-only pageviews.
+     Helps gauge the value of the membership portal.
+     Status: ✓ IMPLEMENTED — TrafficTimeSeriesRow gained an optional
+     MemberPageviews int (defaulted to 0 for source/test compatibility).
+     AnalyticsDashboardService.GetTrafficTimeSeriesAsync now, after
+     loading the existing hourly/daily rollup rows, runs a second EF
+     LINQ query against db.AnalyticsEvents filtered by Timestamp range
+     and MemberUuid != null && != "" (column-level — the literal
+     "undefined" string only appears inside the payload JSON, not the
+     member_uuid column), grouping by Timestamp.Date.AddHours(.Hour)
+     for the ≤7-day hourly branch and by Timestamp.Date for the daily
+     branch, and projecting to a Dictionary<DateTime,int> for O(1)
+     bucket lookup when constructing the result rows. Analytics.razor's
+     RenderCharts() appends a third "Member pageviews" dataset
+     (rgba(237,137,54), fill=false) to the traffic chart so the line
+     overlays pageviews/visitors without obscuring them. Comparison
+     mode is unaffected — the dashed compare datasets still only render
+     Pageviews/Visitors. SignalR ReceiveDashboard payload type
+     TrafficTimeSeries unchanged. Existing FakeAnalyticsDashboardService
+     in AnalyticsHubTests still compiles because MemberPageviews has a
+     default value.
+
+[x] ANAL.5  [P1] ADD EXPORT ANALYTICS DATA
+     Currently: No data export.
+     Enhance: Add "Export CSV" button that downloads the current date
+     range's data (KPIs, top pages, sources, countries) as a CSV file.
+     Status: ✓ IMPLEMENTED — Analytics.razor adds an "Export CSV" outline-
+     secondary button (with bi-download icon and a spinner/"Exporting…"
+     state) at the end of the date-range toolbar, gated by a private
+     `exporting` flag plus the existing `loading` flag so it can't fire
+     mid-load. ExportCsvAsync builds a single multi-section CSV in a
+     StringBuilder using already-loaded page state (no extra DB calls):
+     a header block with the human-readable date range and UTC generated
+     timestamp, then "# KPIs" (Unique Visitors, Visits, Pageviews, Bounce
+     Rate %, Avg Session Duration s) sourced from `kpi`, "# Top Pages"
+     (page_path, post_title, author, published_at, pageviews,
+     unique_visitors, avg_time_on_page_seconds) from `topPages`,
+     "# Top Sources" (source, visits, unique_visitors) from `topSources`,
+     and "# Countries" (country, visitors, percentage) from `countries`.
+     All free-form text fields go through a local CsvEscape helper
+     (quotes wrapping + ""-doubling on , " \r \n) to handle commas in
+     post titles or referrers. The UTF-8 byte buffer is base64-encoded
+     and passed to the existing `downloadCsv(filename, base64)` JS
+     helper in App.razor (a data:text/csv;base64 anchor click), with
+     filename `analytics-yyyyMMdd-yyyyMMdd.csv` reflecting the active
+     range. Failures set errorMessage; the exporting flag is always
+     cleared in finally with StateHasChanged so the button re-enables.
+     Added `@using System.Text` to the page.
+
+[x] ANAL.6  [P2] ADD PAGE-SPECIFIC ANALYTICS DRILL-DOWN
+     Click any page in the Top Pages table to see its own detail view:
+     daily traffic, referral sources, devices, and member vs anonymous
+     breakdown for that specific URL.
+     Status: ✓ IMPLEMENTED — IAnalyticsDashboardService gains
+     GetPageDetailAsync(path, from, to) returning a new PageDetailResult
+     record (PagePath, PostId?, PostTitle?, Pageviews, UniqueVisitors,
+     MemberPageviews, AnonymousPageviews, TimeSeries, Referrers, Devices).
+     AnalyticsDashboardService implements it with EF LINQ over
+     db.AnalyticsEvents filtered by PageUrlPath == path within the
+     timestamp range: totals + distinct-session visitor count, member
+     pageviews via MemberUuid != null && != "", anonymous = total -
+     member; time series groups by hour (≤7-day windows) or by date
+     using TrafficTimeSeriesRow with MemberPageviews populated;
+     referrers grouped by Referrer with TOP 20 by visits; devices
+     grouped by Device with percentage of total page sessions; post
+     title/id resolved by stripping leading/trailing slashes from the
+     path and matching db.Posts.Slug where Status == "published". New
+     /analytics/page Razor page (PageAnalytics.razor, Owner/Administrator
+     auth) reads ?path, ?from, ?to query params, defaults to last 30
+     days, calls the service directly (no SignalR), and renders: four
+     KPI cards (Pageviews, Unique visitors, Member pageviews with %,
+     Anonymous pageviews with %), an hourly/daily traffic line chart
+     overlaying total/member/anonymous datasets via the existing
+     analyticsCharts.createOrUpdate JS helper, a Top Referrers table,
+     and a Devices doughnut chart. Empty-data states render friendly
+     placeholders. DisposeAsync calls analyticsCharts.destroyAll
+     (try/catch) to release Chart.js instances. Analytics.razor Top
+     Pages table now wraps both the post-title and bare-path variants
+     in <a href> links to /analytics/page?path={EscapeDataString(path)}
+     &from={dateFrom:yyyy-MM-dd}&to={dateTo.AddDays(-1):yyyy-MM-dd},
+     preserving the active analytics date range. Tests cover
+     PageDetailResult value carriage and FakeAnalyticsDashboardService
+     (extended with GetPageDetailAsync returning fixture data) so all
+     existing AnalyticsHubTests still compile and pass (8/8 green).
+
+[x] ANAL.7  [P2] ADD SEARCH TERMS WIDGET
+     If referrer URLs from Google contain query parameters, extract and
+     display the top search terms driving traffic.
+     Status: ✓ IMPLEMENTED — IAnalyticsDashboardService gains
+     GetSearchTermsAsync(from, to, top=20) returning a new SearchTermRow
+     record (Term, Engine, Visits, UniqueVisitors). AnalyticsDashboardService
+     implements it with EF LINQ over db.AnalyticsEvents filtered by
+     Timestamp range AND Referrer Contains a known search-engine domain
+     fragment ("google.", "bing.", "yahoo.", "duckduckgo.", "ecosia.",
+     "startpage.", "yandex.", "baidu.", "brave.com"); rows are pulled
+     server-side then aggregated in-memory by (Engine, lowercase term)
+     because SQL Server can't parse query strings cheaply. ResolveSearchEngine
+     maps Uri.Host (with leading "www." stripped) to (Engine, ParamName)
+     pairs — Google/Bing/DuckDuckGo/Ecosia/Brave use "q", Yahoo uses "p",
+     Startpage uses "query", Yandex uses "text", Baidu uses "wd".
+     ExtractQueryParam splits on '&', matches the param name case-
+     insensitively, replaces '+' with ' ' and Uri.UnescapeDataString-
+     decodes the value (try/catch around bad escapes); terms are trimmed
+     and capped at 200 chars. UniqueVisitors counted via HashSet of
+     SessionId (Ordinal). Results sorted by Visits desc, then UniqueVisitors
+     desc, capped at @top. AnalyticsHub.RequestDashboard now also calls
+     GetSearchTermsAsync and includes SearchTerms in the ReceiveDashboard
+     payload. Analytics.razor adds a `searchTerms` field, loads it in
+     OnInitializedAsync and the LoadData fallback path, deserializes
+     SearchTerms from AnalyticsDashboardPayload, and renders a new
+     "Search Terms" card after UTM Campaigns showing Term/Engine
+     (badge)/Visits/Visitors with a friendly empty state explaining that
+     most modern engines (notably Google over HTTPS) strip the q= param
+     from outbound referrers so the widget will populate sparsely. CSV
+     export now includes a "# Search Terms" section. FakeAnalyticsDashboard
+     Service in AnalyticsHubTests gains GetSearchTermsAsync returning an
+     empty list. Tests cover SearchTermRow value carriage and the fake
+     service contract; all 12 AnalyticsHubTests pass.
+
+
+================================================================================
+  10. MEMBERS (Members.razor + MemberDetail.razor)
+================================================================================
+
+[x] MEM.1   [P0] ADD BULK LABEL ASSIGNMENT
+     Currently: Labels can only be assigned one member at a time.
+     Enhance: Use the existing checkbox selection to enable bulk "Add
+     Label" and "Remove Label" actions in the bulk action bar.
+     Status: ✓ IMPLEMENTED — Members.razor table gains a leading
+     checkbox column with a header "select all" toggle (allSelected
+     bound to the current page's Items) and per-row checkboxes wired
+     to a HashSet<string> selectedIds; the row <td> uses
+     @onclick:stopPropagation so toggling a checkbox doesn't navigate
+     to the member detail page. When selectedIds.Count > 0 a sticky
+     bulk-action alert renders above the table showing "{N} selected",
+     two Bootstrap dropdowns ("Add label" / "Remove label") populated
+     from the existing allLabels collection, an inline spinner while
+     bulkBusy, and a "Clear" link. BulkAddLabelAsync /
+     BulkRemoveLabelAsync iterate selectedIds and call the existing
+     IMemberRepository.AddLabelToMemberAsync /
+     RemoveLabelFromMemberAsync (which are idempotent — Add skips
+     duplicates, Remove uses ExecuteDeleteAsync), then reload the
+     current page via LoadMembersAsync so the Labels column reflects
+     the change. Successes / failures surface through the existing
+     statusMessage + isError alert. No DB schema or repository
+     changes required.
+
+[x] MEM.2   [P0] ADD MEMBER IMPORT (CSV)
+     Currently: Export CSV exists but no import.
+     Enhance: Add CSV import supporting columns: email, name, status,
+     labels, subscribed_to_emails, complimentary_plan, stripe_customer_id.
+     Validate emails, skip duplicates, report results.
+     Status: ✓ IMPLEMENTED — New IMemberImportService (Core) +
+     MemberImportService implementation that parses RFC-4180-style CSV
+     (header-driven, case-insensitive column names, quoted fields with
+     ""-escaping and embedded commas/newlines, optional trailing newline,
+     blank-line skipping) and, for each row: trims/validates email via
+     System.Net.Mail.MailAddress (rejects malformed or >254 chars),
+     checks IMemberRepository.GetByEmailAsync + an in-batch HashSet to
+     skip duplicates, creates Member { Id/Uuid/TransientId = new GUIDs,
+     Status, EmailDisabled = !subscribed_to_emails (default true),
+     CreatedAt/UpdatedAt = UtcNow } via AddAsync, records
+     MembersCreatedEvent (Source="import") and MembersStatusEvent
+     (null→status) for parity with the normal signup flow, splits the
+     labels column on ';' or '|' (commas reserved for CSV), get-or-
+     creates each Label by lowercased name (auto-generated slug via
+     letters/digits + hyphens, deduplicated to single hyphens), assigns
+     via AddLabelToMemberAsync, subscribes the new member to every
+     active newsletter with SubscribeOnSignup=true through
+     INewsletterService.SubscribeAsync when subscribed_to_emails is
+     true, and links stripe_customer_id through a new
+     IMemberRepository.LinkStripeCustomerAsync(memberId, customerId,
+     name, email) — which inserts a MembersStripeCustomer row only if
+     the CustomerId isn't already present (unique index in AppDbContext),
+     returning false on conflict so the importer logs "Stripe customer
+     'x' is already linked to another member." status field maps "paid"
+     /"comped"/"free" with complimentary_plan=true forcing "comped"
+     (Ghost parity). Result type MemberImportResult carries Imported,
+     SkippedDuplicates, Failed, LabelsCreated, StripeCustomersLinked,
+     TotalRows, and a List<MemberImportRowError(LineNumber, Email,
+     Message)> for per-row validation problems. Service registered as
+     scoped in HowToSoftware.Infrastructure/DependencyInjection.cs next
+     to IMemberService. Members.razor injects IMemberImportService and
+     gains an "Import CSV" button beside the existing "Export CSV" that
+     opens a Bootstrap modal documenting all supported columns, hosting
+     a Blazor InputFile (accept=".csv,text/csv", 10 MB cap, UTF-8
+     StreamReader → ReadToEndAsync), a spinner during import, and a
+     result view with four KPI cards (Imported / Skipped / Failed /
+     Total) plus a scrollable error table (line, email, message) and
+     "Import another file" / "Close" actions; on completion the page
+     reloads counts and the current member list and surfaces a summary
+     in the existing alert. FakeMemberRepo in MemberServiceTests,
+     ContentGatingServiceTests, CommentServiceTests, SuppressionService
+     Tests and NewsletterServiceTests gained the new
+     LinkStripeCustomerAsync stub. New MemberImportServiceTests covers
+     13 scenarios: empty CSV, missing email header, single valid row,
+     invalid email rejection, DB-duplicate skip, batch-duplicate skip,
+     complimentary_plan=true → comped, subscribed_to_emails=false →
+     EmailDisabled + no newsletter subs, subscribed_to_emails=true →
+     auto-subscribes to SubscribeOnSignup newsletters only, labels
+     column reuses existing label and creates missing ones (";"-
+     separated), stripe_customer_id links first occurrence and reports
+     "already linked" on the second, RFC-4180 quoted fields with
+     embedded commas, and that imported members emit MembersCreated
+     Event(Source="import") + MembersStatusEvent(null→free). Full
+     Core test suite: 520/520 green.
+
+[x] MEM.3   [P1] ADD MEMBER ACTIVITY TIMELINE TO DETAIL PAGE
+     Currently: Detail page shows static info and subscription list.
+     Enhance: Add a chronological activity feed showing: signup date,
+     email opens, email clicks, comment posts, subscription changes,
+     payment events. Source from existing event/analytics tables.
+     Status: ✓ IMPLEMENTED — New IMemberActivityService (Core) +
+     MemberActivityService (Infrastructure) aggregates events for a
+     single member across MembersCreatedEvents (signup w/ source +
+     referrer), MembersLoginEvents (sign-ins), MembersStatusEvents
+     (free→paid etc.), MembersSubscribeEvents (newsletter sub/unsub,
+     joined to Newsletter for name), EmailRecipients (sent +
+     OpenedAt, joined to Email→Post for subject + edit link),
+     MembersClickEvents (joined to Redirect.To for destination URL),
+     Comments (status="published", joined to Post.Title),
+     MembersFeedback (more/less-like-this with Post.Title),
+     MembersSubscriptionCreatedEvents,
+     MembersPaidSubscriptionEvents (created/cancelled/plan changes
+     with MRR delta in major units), MembersCancelEvents, and
+     MembersPaymentEvents (amount in major units + currency). Each
+     event projects into a MemberActivityItem (Timestamp, Type,
+     Title, Description?, LinkText?, LinkUrl?) record; results are
+     ordered newest-first and capped at @top (default 200). Service
+     registered as Scoped in HowToSoftware.Infrastructure/
+     DependencyInjection.cs next to IMemberImportService. MemberDetail
+     .razor injects IMemberActivityService, loads the timeline in
+     OnInitializedAsync after the member load, and renders a new
+     "Activity" card below "Newsletter subscriptions" with a 4-button
+     filter group (All / Email / Subscription / Engagement) and a
+     list-group timeline of icon + title + relative timestamp
+     ("just now" / "5m ago" / "3d ago" / "Mar 14, 2026") with
+     optional link text (post title for comment/feedback/email,
+     external redirect URL for clicks, opens in _blank w/ rel=
+     "noopener" when http). ActivityIcon / ActivityIconBg map each
+     event type to a Bootstrap Icons glyph and badge color.
+     FilteredActivity() groups types into the three filter buckets.
+     No DB schema changes; no IMemberRepository signature changes,
+     so existing FakeMemberRepo test fakes still compile.
+
+[x] MEM.4   [P1] ADD MEMBER FILTERING BY ENGAGEMENT
+     Currently: Filter by status and label only.
+     Enhance: Add engagement filters: "Active last 30 days", "Never
+     opened email", "Opened >50% of emails", "No activity last 90 days".
+     Requires joining with email_recipients and analytics_events.
+     Status: ✓ IMPLEMENTED — New MemberEngagementFilter enum in
+     HowToSoftware.Core/Interfaces/IMemberRepository.cs with values
+     ActiveLast30Days, NeverOpenedEmail, OpenedOverHalf, InactiveLast90
+     Days. IMemberRepository.GetAllAsync and GetAllForExportAsync gained
+     an optional `MemberEngagementFilter? engagement = null` parameter
+     (default null so all existing call sites are source-compatible).
+     MemberRepository (Infrastructure) implements ApplyEngagementFilter
+     using the existing denormalised columns on Member — LastSeenAt for
+     Active/Inactive (so no JOIN to analytics_events is needed; the
+     column is already maintained by the analytics ingest pipeline) and
+     EmailCount / EmailOpenedCount for the email-engagement variants
+     (maintained by the EmailRecipient open-tracker, so no per-query
+     JOIN to email_recipients either). Predicate translates to SQL:
+     ActiveLast30Days → LastSeenAt IS NOT NULL AND LastSeenAt >=
+     DATEADD(day,-30,getutcdate()); NeverOpenedEmail → EmailCount > 0
+     AND EmailOpenedCount = 0 (excludes members who never received any
+     email, which is the meaningful interpretation); OpenedOverHalf →
+     EmailCount > 0 AND EmailOpenedCount * 2 > EmailCount (strictly
+     greater than 50%, integer-safe — no division); InactiveLast90Days
+     → LastSeenAt IS NULL OR LastSeenAt < DATEADD(day,-90,getutcdate()).
+     Members.razor adds a new "Engagement" dropdown in the filter bar
+     between Label and Search with five options (Any engagement plus
+     the four filters), bound to `engagementFilter` and triggering
+     ReloadAsync on change like the existing filters; ParseEngagement
+     helper maps the string value to the enum via Enum.TryParse and
+     LoadMembersAsync / ExportCsvAsync pass the parsed value through
+     to the repository so CSV export honours the active engagement
+     filter. All 6 FakeMemberRepo implementations across the test
+     suite (CommentServiceTests, ContentGatingServiceTests,
+     MemberImportServiceTests, MemberServiceTests, NewsletterService
+     Tests, SuppressionServiceTests) updated to match the new
+     signatures. MemberRepositoryTests adds four integration tests
+     covering each engagement filter — including the edge cases that
+     NeverOpenedEmail excludes members with EmailCount=0,
+     OpenedOverHalf excludes exactly-50% (strict >), and
+     InactiveLast90Days includes both NULL and old LastSeenAt rows.
+     Full Core test suite: 520/520 green.
+
+[x] MEM.5   [P1] ADD MEMBER SEGMENTS / SAVED FILTERS
+     Allow saving named filter combinations (e.g. "Engaged Free Members",
+     "Inactive Paid"). Show segments as quick-access chips above the
+     member table. Store in a new member_segments table.
+     Status: ✓ IMPLEMENTED — New `MemberSegment` entity
+     (HowToSoftware.Core.Entities.MemberSegment) with StatusFilter,
+     LabelId, EngagementFilter, SearchQuery, SortOrder, CreatedAt,
+     UpdatedAt and a Label navigation property (FK with SET NULL).
+     IMemberSegmentRepository + MemberSegmentRepository
+     (GetAllAsync orders by SortOrder then Name, includes Label;
+     UpdateAsync stamps UpdatedAt; DeleteAsync uses ExecuteDeleteAsync).
+     AppDbContext: DbSet<MemberSegment> wired with snake_case naming
+     producing the `member_segments` table, unique index on Name,
+     index on SortOrder, FK to labels with OnDelete(SetNull), and
+     a default CreatedAt = SYSUTCDATETIME(). DI registers the repository
+     as Scoped. Idempotent migration script add-member-segments.sql
+     creates the table, indexes and FK. Members.razor now renders a
+     "Segments:" chip strip above the filters with per-segment apply +
+     delete buttons (highlighting the active segment) and a
+     "Save current filter" button that opens a modal capturing the
+     current statusFilter/labelFilter/engagementFilter/searchQuery
+     into a new named segment. Repository tests
+     (MemberSegmentRepositoryTests) cover round-trip, sort order,
+     unique-name constraint, update timestamp, delete, and the
+     label SET NULL FK behavior.
+
+[x] MEM.6   [P1] ADD IMPERSONATE / VIEW-AS-MEMBER
+     Add a "View site as this member" button on member detail. Creates a
+     temporary read-only session to see what the member sees (gated content,
+     portal state). Requires audit logging for security.
+     Status: ✓ IMPLEMENTED — New `AdminAuditLog` entity
+     (HowToSoftware.Core.Entities.AdminAuditLog) as an append-only audit
+     trail of admin actions with AdminUserId, AdminUserEmail, Action,
+     TargetType, TargetId, Metadata (JSON), IpAddress, UserAgent, CreatedAt.
+     Two new Core interfaces: `IAdminAuditService` (LogAsync with
+     AdminAuditEntry record) and `IMemberImpersonationService`
+     (CreateTokenAsync, VerifyAndConsumeAsync, 2-minute TokenLifetime,
+     30-minute SessionLifetime). Two new Infrastructure services:
+     `AdminAuditService` swallows recording failures so audit recording
+     never blocks the underlying action; `MemberImpersonationService`
+     mirrors the MagicLinkService hash-and-store pattern — generates a
+     32-byte hex token, persists only the SHA-256 hash in the existing
+     Tokens table with Data JSON {Type:"admin-impersonate",MemberId,
+     AdminUserId,AdminUserEmail}, and the verify path consumes the token
+     before resolving the member to prevent races. AppDbContext: new
+     DbSet<AdminAuditLog>, entity wired with snake_case (admin_audit_logs)
+     and indexes on admin_user_id, action, (target_type,target_id) and
+     created_at, with CreatedAt default SYSUTCDATETIME(). DI registers
+     both services as Scoped. Idempotent migration script
+     add-admin-audit-log.sql creates the table and its indexes.
+     New Web controller `MemberImpersonationController`
+     (GET /api/member/impersonate/verify) consumes the token, signs in
+     the MemberCookie scheme with claims including a new "impersonated_by"
+     (and "impersonated_by_email") claim, configures a SHORT
+     non-persistent cookie (IsPersistent=false, ExpiresUtc=+30min),
+     records a "member.impersonate.start" audit log entry with the
+     request IP/User-Agent, and redirects to "/?impersonate=active".
+     MemberDetail.razor: new "Impersonate" card in the right column with
+     a "View site as this member" button that calls
+     IMemberImpersonationService.CreateTokenAsync in-process, records a
+     "member.impersonate.token_issued" audit entry, builds the verify
+     URL from the public site root (`ISettingsService.GetStringAsync("url")`),
+     and opens it in a new tab via window.open with noopener. Integration
+     tests cover both services: MemberImpersonationServiceTests
+     (raw-vs-hashed storage, round-trip verify returning member + admin
+     info, single-use reuse rejection, expired-token rejection, unknown
+     and empty tokens rejected, missing-member error) and
+     AdminAuditServiceTests (round-trip persistence and User-Agent
+     truncation at 512 chars).
+
+[x] MEM.7   [P2] ADD MEMBER NOTES HISTORY
+     Currently: Single note field with no history.
+     Enhance: Append-only notes with timestamps and author. Show as a
+     conversation-style thread on the detail page.
+     Status: ✓ IMPLEMENTED — New `MemberNote` entity (HowToSoftware.Core.
+     Entities.MemberNote) with Id, MemberId, AuthorId? (FK to users SET
+     NULL — notes survive admin deletions), AuthorName? (denormalized
+     display name captured at write time so the thread stays readable
+     after renames), Body, CreatedAt. New IMemberNoteRepository +
+     MemberNoteRepository expose only GetByMemberAsync (oldest-first) and
+     AddAsync — no Update or Delete, enforcing append-only semantics at
+     the repository surface. AppDbContext gains DbSet<MemberNote>, a
+     fluent config with composite index (MemberId, CreatedAt), cascade
+     delete from members, set-null FK to users, and CreatedAt default
+     SYSUTCDATETIME(). DI registers the repository as Scoped alongside
+     IMemberSegmentRepository. Idempotent migration `add-member-notes.sql`
+     creates the member_notes table (NVARCHAR(24) ids, NVARCHAR(MAX)
+     body), both FKs and the composite index, then backfills one entry
+     per Member with a non-empty single-field Note (author_name =
+     "(legacy)", created_at = members.updated_at ?? created_at) only when
+     no notes already exist for that member, so re-running is safe. The
+     legacy Member.Note column is left in place (untouched by EF) so no
+     historical data is lost. MemberDetail.razor swaps the old single-
+     line Note card for an append-only thread card showing avatar + 
+     author name + relative timestamp + pre-wrapped body for each note,
+     a count badge in the header, and a textarea + "Add note" button.
+     AddNoteAsync pulls the signed-in admin via the existing
+     AuthenticationStateProvider claim chain (NameIdentifier for AuthorId,
+     Name → Identity.Name → Email fallback for AuthorName), generates an
+     ObjectId, persists via the repository, then reloads the thread and
+     clears the input. Posting is disabled while in-flight and on empty
+     input. Tests cover round-trip persistence, oldest-first ordering,
+     per-member isolation, empty-thread behavior, and cascade-delete
+     from members.
+
+[x] MEM.8   [P2] ADD MEMBER AVATAR UPLOAD
+     Currently: Shows initial letter or Gravatar.
+     Enhance: Allow admin to upload a custom avatar for any member.
+     Status: ✓ IMPLEMENTED — New nullable Member.AvatarImage (NVARCHAR(2000))
+     property persisted via EF (AppDbContext.HasMaxLength(2000)) and a fresh
+     idempotent migration `add-member-avatar.sql` adding the avatar_image
+     column to the members table. MemberDetail.razor injects the existing
+     IImageStorageService, replaces the header initial-letter circle with
+     an <img> when AvatarImage is set, and adds a dedicated "Avatar" card
+     at the top of the right column showing a 120px preview (or the
+     initial-letter placeholder), an "Upload" / "Replace" button hosting
+     a hidden <InputFile accept="image/*"> bound to UploadAvatarAsync, and
+     a "Remove" button bound to RemoveAvatarAsync. UploadAvatarAsync caps
+     uploads at 10 MB, streams the file through ImageStorage.UploadAsync
+     (which already auto-converts to WebP and resizes), stores the
+     returned relative URL on Member.AvatarImage, stamps UpdatedAt, calls
+     IMemberRepository.UpdateAsync and enqueues a "member.edited" webhook.
+     RemoveAvatarAsync nulls the column and persists similarly. Both paths
+     surface success/failure through the existing statusMessage/isError
+     alert and guard with an `uploadingAvatar` flag that disables the
+     buttons and shows a spinner during the in-flight request. Members.razor
+     list table renders the uploaded avatar in the existing 32px row
+     circle when present, otherwise the initial-letter fallback. No new
+     repository methods required — IMemberRepository.UpdateAsync already
+     persists the new column.
+
+
+================================================================================
+  11. NEWSLETTERS (Newsletters.razor + NewsletterEditor.razor)
+================================================================================
+
+[x] NEWS.1  [P0] ADD SEND TEST EMAIL IN EDITOR
+     Currently: No way to preview a newsletter email before sending.
+     Enhance: Add "Send Test Email" button that sends the newsletter
+     to the current admin's email address with a [TEST] subject prefix.
+     Uses existing EmailBatchSenderService with a single recipient.
+     Status: ✓ IMPLEMENTED — NewsletterEditor.razor adds a "Send test"
+     outline-secondary button in the top bar next to Save/Delete (hidden
+     on the New flow), gated by a `sendingTest` flag that renders an
+     inline spinner and disables the button while a send is in flight.
+     SendTestEmailAsync resolves the current admin's email from
+     AuthenticationStateProvider via the ClaimTypes.Email claim and
+     bails with a friendly error if it can't determine the address.
+     It pulls site title/url/icon and accent_color from ISettingsService
+     and builds an EmailTemplateModel from the editor's *current* (un-
+     saved) form state — header image, footer content, all Show* toggles
+     (Badge / HeaderIcon / HeaderTitle / Excerpt; FeatureImage forced
+     off since the test has no real post image), background color, and
+     typography (TitleFontCategory / TitleAlignment / BodyFontCategory)
+     — with PostTitle="Test Newsletter Email", PostUrl=siteUrl, and an
+     HTML-encoded inline body so the recipient can verify rendering
+     end-to-end without needing a real Post. The body is rendered via
+     IEmailService.RenderTemplateAsync("newsletter", model) — the same
+     RazorLight template + EmailTemplateModel pipeline used by
+     NewsletterService.SendPostAsNewsletterAsync — so the test reflects
+     all current design settings, including changes the admin hasn't
+     saved yet. From address falls back to senderEmail (or noreply@
+     <site-host> derived from siteUrl) and From name to senderName (or
+     siteTitle), then sends a single email via IEmailService.SendAsync
+     with Subject="[TEST] {newsletter name}". Test emails are NOT
+     persisted as Email/EmailBatch/EmailRecipient rows and don't go
+     through EmailBatchSenderService's polling loop — bypassing that
+     pipeline is intentional so test sends don't pollute open/click
+     analytics, can't accidentally trigger production fan-out, and
+     don't hit the batch chunking/rate-limit delay (admin clicks "Send
+     test" and the email is on its way immediately). Success/failure
+     surfaces through the existing statusMessage + isError span next
+     to the Newsletters back-link; try/catch around the whole flow
+     captures provider errors and the finally{} always clears
+     sendingTest. AuthenticationStateProvider and ClaimTypes were
+     already imported.
+
+     [x] NEWS.2  [P0] ADD EMAIL TEMPLATE PREVIEW
+     Currently: Design settings are toggles and color pickers with no
+     visual feedback.
+     Enhance: Add a live preview pane (right side or modal) that renders
+     the email template with sample content as the user changes design
+     settings. Update preview on every toggle/color change.
+     Status: ✓ IMPLEMENTED — NewsletterEditor.razor adds a "Preview"
+     outline-secondary button in the top bar (visible on both New and
+     Edit flows, alongside Send test / Delete / Save) that toggles a
+     full-height Bootstrap modal-xl modal (90vh, max-width min(900px,
+     95vw)) hosting an <iframe sandbox="allow-same-origin" srcdoc="…">
+     that renders the actual email HTML against an off-white #f3f4f6
+     backdrop so the email's own background color is clearly visible.
+     The modal header shows "Email preview" with an inline spinner-
+     border while `previewLoading`, a muted "Updates live as you edit
+     design settings." hint, and a close button. The preview is
+     produced by calling IEmailService.RenderTemplateAsync("newsletter",
+     model) — the same RazorLight + Newsletter.cshtml pipeline used by
+     NewsletterService.SendPostAsNewsletterAsync and by the existing
+     Send-test action — so the preview matches the real send pixel-for-
+     pixel. Sample content includes a fixed post title ("Sample post
+     title for preview"), a real Unsplash feature image (only when
+     ShowFeatureImage is on, so the toggle visibly clears/restores the
+     hero), author "Jane Doe", a sample excerpt, PublishedAt = UtcNow,
+     and a multi-paragraph HtmlBody with a link, blockquote, and inline
+     CTA button so link/blockquote/button styling is exercised. Every
+     design field on the editor flows into the EmailTemplateModel:
+     header image + all Show* toggles + HeaderBackgroundColor,
+     typography (TitleFontCategory/Alignment/Weight, BodyFontCategory),
+     content toggles (FeatureImage, Excerpt, PostTitleSection,
+     CommentCta, FeedbackEnabled), color palette (BackgroundColor,
+     PostTitleColor, DividerColor, ButtonColor, LinkColor), element
+     styles (ButtonCorners, ButtonStyle, LinkStyle, ImageCorners), and
+     FooterContent; placeholder %%token%% URLs (Unsubscribe, Manage,
+     Comment) are stubbed to "#" so the footer renders without
+     broken-link styling. Auto-refresh is implemented via a
+     BuildPreviewKey() helper that concatenates every editor field
+     that influences the template into a stable string, plus an
+     OnAfterRenderAsync hook that — only when the modal is open and
+     no render is currently in-flight — compares the current key to
+     `lastPreviewKey` and triggers RefreshPreviewAsync when they
+     differ. This means @bind on any toggle / select / color input
+     automatically re-renders the preview after Blazor's next render
+     pass, without wiring an onchange handler to each individual
+     control. RefreshPreviewAsync uses a CancellationTokenSource so
+     rapid-fire changes (e.g. dragging the color picker) cancel
+     superseded renders and converge on the latest form state;
+     OperationCanceledException is swallowed silently. RazorLight or
+     SMTP/template errors surface in a red `alert-danger` inside the
+     modal body instead of breaking the editor. The previewLoading
+     flag keeps the spinner visible during the in-flight render, and
+     the finally{} restores it + calls StateHasChanged only when the
+     current CTS is still the active one, so cancelled renders don't
+     flicker the UI back to "loading". No new services or DI required
+     — IEmailService and ISettingsService were already injected for
+     the Send-test action.
+
+[x] NEWS.3  [P1] ADD NEWSLETTER ANALYTICS DASHBOARD
+     Currently: Only subscriber count visible.
+     Enhance: Show per-newsletter metrics: total sent, open rate, click
+     rate, unsubscribe rate, trend over last 10 sends. Pull from existing
+     email_recipients table (opened_at, failed_at).
+
+     Status: ✓ IMPLEMENTED. Added INewsletterRepository.GetAnalyticsAsync
+     plus two records (NewsletterAnalytics, NewsletterSendStat) in
+     HowToSoftware.Core.Interfaces. The EF Core implementation in
+     NewsletterRepository pulls the top-N Emails for the newsletter
+     (ordered by SubmittedAt desc, default 10) and reads the aggregate
+     EmailCount / DeliveredCount / OpenedCount / FailedCount columns
+     already maintained on each Email row by NewsletterService — no
+     per-request scan of email_recipients required. Unsubscribe counts
+     come from members_subscribe_events filtered by NewsletterId &&
+     !Subscribed, then bucketed into each send's window
+     [SubmittedAt, nextSubmittedAt) so an unsubscribe is attributed to
+     the most recent send before it occurred. New Blazor page
+     NewsletterAnalyticsPage.razor at /newsletters/{id}/analytics
+     renders six KPI cards (Total sent / Delivered / Open rate /
+     Failed / Unsubscribe rate / Subscribers), a Chart.js line trend
+     (Open % / Failed % / Unsubscribe % per send, oldest→newest) via
+     the existing window.analyticsCharts JS interop, and a send-history
+     table (newest first) with post title, submitted-at, recipients,
+     delivered, opened, failed, and unsubscribed columns. A sends-limit
+     selector (5/10/20/50) re-queries on change. Entry points added:
+     bar-chart icon button per row on the Newsletters list and an
+     Analytics button in the NewsletterEditor top bar (shown only for
+     existing newsletters). Click rate was intentionally omitted: the
+     schema has no Email↔click linkage — MembersClickEvent joins to
+     Redirect, which has no EmailId column, so per-send click rate is
+     not derivable without a schema migration. Three FakeNewsletterRepo
+     test fakes were updated to satisfy the new interface signature;
+     build green, all 963 non-Infrastructure tests pass.
+
+[x] NEWS.4  [P1] ADD SUBSCRIBER GROWTH CHART
+     Show a line chart of subscriber count over time for each newsletter.
+     Track daily subscribe/unsubscribe events from members_subscribe_events.
+     Status: ✓ IMPLEMENTED — INewsletterRepository gains GetGrowthAsync(
+     newsletterId, fromUtc, toUtc) returning a new NewsletterGrowthPoint
+     record (Date, Subscribed, Unsubscribed, CumulativeSubscribers).
+     NewsletterRepository implements it by pulling all
+     members_subscribe_events for the newsletter from the start of the
+     range onward (CreatedAt + Subscribed columns only), bucketing them
+     in-memory by UTC date into (subscribes, unsubscribes) per day, and
+     separately accumulating the net delta of any events that occurred
+     strictly AFTER the window. The cumulative subscriber line is back-
+     projected from the live active-subscriber count (MembersNewsletters
+     joined to members with EmailDisabled=false — same predicate used by
+     GetSubscriberCountAsync) by subtracting that post-range delta to
+     get the end-of-range count, then walking forward from start-of-
+     range applying each day's net delta so every emitted point reports
+     end-of-day subscribers. This handles dormant days (no events)
+     correctly: empty days produce a flat line at the previous day's
+     value, with Subscribed=Unsubscribed=0. NewsletterAnalyticsPage adds
+     a new "Growth" range selector in the top bar (30/90/180/365 days,
+     default 90) that calls ReloadGrowthAsync without re-loading the
+     send-trend stats, plus a new "Subscriber growth — last N days"
+     card between the send-trend chart and the send-history table. The
+     card header summarizes totals (+X subscribed, −Y unsubscribed,
+     net ±Z, colored red/green). RenderGrowthChartAsync builds a mixed
+     Chart.js chart on canvas chartNewsletterGrowth: a green-filled
+     cumulative line on the left y-axis, plus green/red daily bars
+     (unsubscribes plotted as negative values so the bars diverge above/
+     below zero) on a separate right y-axis labelled "Daily change"
+     with grid drawing disabled to avoid grid-line interference between
+     the two scales. DisposeAsync destroys both chartNewsletterTrend
+     and chartNewsletterGrowth. Three FakeNewsletterRepo test fakes
+     (NewsletterServiceTests, MemberServiceTests, MemberImportService
+     Tests) updated with a Task.FromResult<IReadOnlyList<…>>([]) stub
+     to match the new interface signature. Build green.
+
+[x] NEWS.5  [P2] ADD A/B SUBJECT LINE TESTING
+     Allow creating two subject line variants. Send each to 10% of
+     subscribers. After 2 hours, send the winner to the remaining 80%.
+
+     Status: ✓ IMPLEMENTED
+     Entity additions: Email gained SubjectB (varchar 300), AbTestPhase
+     ("testing"|"completed"|null), AbTestSplitPercent (int, default 0),
+     AbTestWaitMinutes (int, default 0), AbTestStartedAt (datetime?,
+     marks the moment cohorts A+B were sent — winner-send timer counts
+     from here), AbTestWinnerVariant ("a"|"b"|null), AbTestOpensA,
+     AbTestOpensB (snapshot counts at winner-decision time).
+     EmailRecipient gained AbVariant ("a"|"b"|"holdout"|null).
+     PostMeta gained EmailSubjectB so authors can preset the B subject
+     in the post editor. Migration: add-email-ab-test.sql adds the eight
+     columns + defaults; idempotent (re-runnable).
+     NewsletterService.SendPostAsNewsletterAsync gained the A/B branch:
+     resolves subjectB from request override → PostMeta.EmailSubjectB,
+     clamps splitPercent to 1..50, requires >= 5 subscribers else falls
+     back to single-batch, calls PartitionForAbTest (deterministic Uuid-
+     ordered split into per-cohort + holdout cohorts), creates one
+     EmailBatch per active cohort, persists holdout EmailRecipient rows
+     with ProcessedAt=null + AbVariant="holdout" + placeholder BatchId,
+     sends cohort A with subjectA and cohort B with subjectB via
+     SendCohortAsync, leaves Email.Status="submitting" + AbTestPhase=
+     "testing" + AbTestStartedAt=now so the background winner-send can
+     pick it up. NewsletterService.ProcessPendingEmailAsync mirrors the
+     same A/B branch for the pending-email pickup path used by Content
+     Service.SendAsEmailAsync, defaulting splitPercent=10/waitMinutes=
+     120 when not otherwise specified.
+     NewsletterService.SendAbTestWinnerAsync (new): no-op when phase is
+     not "testing"; loads opens per variant via repository (authoritative,
+     ignores OpenedCount drift); ties → variant A; reassigns holdout
+     recipients to fresh EmailBatches in 500-row chunks, sends with the
+     winning subject, swaps Email.Subject ← SubjectB if B won, snapshots
+     opens, finalizes AbTestPhase="completed" + Status.
+     EmailAbTestWinnerService (new BackgroundService, registered in
+     Program.cs after EmailBatchSenderService): polls every 60s, calls
+     emailRepository.GetAbTestsAwaitingWinnerAsync to find Emails whose
+     AbTestStartedAt + AbTestWaitMinutes window has elapsed (SQL uses
+     EF.Functions.DateDiffMinute), then dispatches each to SendAbTestWin
+     nerAsync; on exception sets AbTestPhase="completed" + Error so the
+     poll doesn't loop forever.
+     IEmailRepository additions: GetAbTestsAwaitingWinnerAsync, GetHold
+     outRecipientsAsync, GetAbVariantOpenCountsAsync. EmailRepository
+     implements all three on AppDbContext. INewsletterService gained
+     SendAbTestWinnerAsync + SendNewsletterRequest gained SubjectB,
+     AbSplitPercent (default 10), AbWaitMinutes (default 120).
+     ContentService.SendAsEmailAsync now copies post.Meta?.EmailSubjectB
+     onto the pending Email so ProcessPendingEmailAsync sees it.
+     PostMetaRequest gained EmailSubjectB; ContentService maps it in
+     both create-meta and update-meta paths.
+     Tests: NewsletterServiceTests.FakeEmailRepository implements the
+     three new methods with in-memory LINQ; SuppressionServiceTests,
+     AutomatedEmailServiceTests, MemberServiceTests, MemberImportService
+     Tests fakes got stub implementations (return empty lists/dict). A
+     new AbTesting region in NewsletterServiceTests covers fallback when
+     fewer than 5 subscribers, three-cohort partitioning (A/B/holdout
+     each with one recipient at 10% split of 10 subs), tie → A wins,
+     B-wins → Subject swap, and holdout reassignment to a fresh batch.
+     All 525 Core tests pass; Admin builds clean.
+
+[x] NEWS.6  [P2] ADD NEWSLETTER ARCHIVE PAGE TOGGLE
+     Toggle to make a newsletter's sent editions publicly viewable on the
+     website at /newsletter/{slug}/archive/.
+     Implementation:
+     Newsletter entity gained ArchiveEnabled bool (default false); EF
+     config sets HasDefaultValue(false); migration add-newsletter-archive
+     .sql idempotently adds archive_enabled BIT NOT NULL DEFAULT 0 with
+     named constraint DF_newsletters_archive_enabled. NewsletterEditor
+     .razor adds a "Public archive page" form-check whose hint surfaces
+     the live /newsletter/{slug}/archive/ URL. IPostRepository gained
+     GetPublishedPostsByNewsletterAsync(newsletterId, page, pageSize, ct);
+     PostRepository implements it via PostsWithIncludes() filtered by
+     Status="published", Type="post", NewsletterId, ordered by
+     PublishedAt desc, then ToPagedResultAsync. New Razor page
+     /newsletter/{slug}/archive (+ paginated /page/{n}/ via Program.cs
+     AddPageRoute) renders a header card with Newsletter.Name and
+     Description (fallback copy), the standard _PostCard partial feed,
+     an empty-state card, and _Pagination with BaseUrl
+     /newsletter/{slug}/archive/. NotFound() when newsletter is null,
+     Status != "active", or !ArchiveEnabled. Tests: FakePostRepository
+     (Web.Tests) implements GetPublishedPostsByNewsletterAsync with real
+     LINQ filter; all other fake IPostRepository impls across the suite
+     stub the new method. New integration test
+     GetPublishedPostsByNewsletterAsync_FiltersByNewsletterAndStatus in
+     PostRepositoryTests covers the published+newsletter filter. Build
+     clean across the solution.
+
+
+================================================================================
+  12. AUTOMATED EMAILS (AutomatedEmails.razor + AutomatedEmailEditor.razor)
+================================================================================
+
+[x] AUTO.1  [P1] ADD EMAIL CONTENT PREVIEW
+     Currently: Raw Lexical JSON textarea.
+     Enhance: Render the Lexical JSON as formatted HTML preview. Same
+     approach as snippet preview — use the LexicalRenderer.
+     Status: ✓ IMPLEMENTED — AutomatedEmailEditor.razor now injects
+     ILexicalRenderer and renders an HTML preview block directly under
+     the Lexical JSON textarea (gated by !string.IsNullOrWhiteSpace),
+     mirroring SnippetEditor exactly: same "Preview" label with bi-eye
+     icon, same .snippet-preview border/rounded/p-3 container, same
+     LexicalRenderer.Render(lexical) call wrapped in MarkupString with
+     the "Nothing to render." italic-muted fallback. Updates live on
+     textarea blur via the existing @bind. No service or DI changes
+     required — ILexicalRenderer was already registered.
+
+[x] AUTO.2  [P1] ADD TRIGGER EVENT DESCRIPTION
+     Currently: Slug is used for programmatic triggering with no guidance.
+     Enhance: Show a human-readable description of when each automated
+     email fires (e.g. "Sent when a new free member signs up").
+     Map known slugs to descriptions.
+     Status: ✓ IMPLEMENTED — New HowToSoftware.Admin.Services.
+     AutomatedEmailTriggerCatalog static helper maps known slugs
+     (welcome, welcome-paid, signup, signup-paid, subscription-canceled
+     /cancelled, payment-failed, trial-ending, password-reset, magic-
+     link) to human-readable descriptions via a case-insensitive
+     Dictionary; GetDescription returns null for unknown slugs and
+     GetDescriptionOrFallback returns a generic "Custom trigger" string.
+     AutomatedEmails.razor list table adds a new "Trigger" column
+     between Slug and Sent that renders the description for known
+     slugs or an italic "Custom trigger" hint (with tooltip) for
+     unknown ones. AutomatedEmailEditor.razor renders a contextual
+     alert directly under the Slug input — alert-info with a lightning
+     icon and the mapped description when known, alert-secondary with
+     a code-slash icon plus an inline IAutomatedEmailService.SendAsync
+     code example when not. The editor sidebar Details card also gains
+     a "Trigger" row using GetDescriptionOrFallback so editors viewing
+     an existing automated email always see the trigger explanation.
+     Both razor files added @using HowToSoftware.Admin.Services. No
+     entity/service/migration changes required — purely a UI mapping.
+
+[x] AUTO.3  [P1] ADD DELIVERY STATISTICS
+     Currently: Shows "sent" count only.
+     Enhance: Show sent, delivered, opened, clicked, bounced counts.
+     Add open rate percentage. Link to individual recipient list.
+
+     Status: ✓ IMPLEMENTED — AutomatedEmailRecipient extended with six
+     nullable tracking columns (DeliveredAt, OpenedAt, ClickedAt, FailedAt,
+     BouncedAt, FailureReason) plus a member_email index. Migration script
+     add-automated-email-tracking.sql (idempotent) covers the schema change.
+
+     New AutomatedEmailStatistics record (Sent/Delivered/Opened/Clicked/
+     Failed/Bounced + OpenRate/ClickRate/DeliveryRate). IAutomatedEmailRepo
+     and IAutomatedEmailService gained GetStatisticsAsync,
+     GetStatisticsBatchAsync, GetRecipientsAsync (paged), and
+     MarkRecipientEventAsync / RecordDeliveryEventAsync.
+
+     AutomatedEmailService.SendAsync now also persists a recipient row on
+     send failure with FailedAt + FailureReason, so failures are visible in
+     stats and dedup (HasRecipientAsync) prevents retry storms.
+
+     EmailWebhookController forwards Mailgun events into the new tracking
+     pipeline alongside the existing suppression flow:
+       - delivered → DeliveredAt
+       - opened → OpenedAt (implies delivery)
+       - clicked → ClickedAt (implies delivery)
+       - failed + severity=permanent → BouncedAt + reason
+       - failed (other) → FailedAt + reason
+     Recipient row matched by latest CreatedAt for the given email; updates
+     are idempotent (only writes if column is null). Tracking forwarder is
+     wrapped in try/catch + LogWarning so tracking failures never propagate
+     back to Mailgun.
+
+     Admin UI:
+       - AutomatedEmails.razor list view: replaces Sent column with stats
+         badges (Delivered/Opened/Clicked/Bounced/Failed counts) + Open rate
+         column; Sent count links to the new recipients page.
+       - AutomatedEmailEditor.razor sidebar: new "Delivery statistics" card
+         with per-bucket counts + open/click/delivery rates + Recipients
+         drill-down button.
+       - AutomatedEmailRecipients.razor (new at
+         /automated-emails/{id}/recipients): paginated table (50/page) with
+         per-recipient timestamps and status badge (Failed/Bounced/Clicked/
+         Opened/Delivered/Sent), back link to editor, stats summary cards.
+
+     Test fakes (FakeAutomatedEmailRepo, FakeAutomatedEmailService) updated
+     to implement the new methods; failure-path test updated to assert the
+     new behaviour (recipient row written with FailedAt). All 525 Core tests
+     pass; full solution builds clean.
+
+[x] AUTO.4  [P2] ADD DELAY / DRIP SEQUENCE SUPPORT
+     Allow setting a delay (e.g. "Send 3 days after signup"). Enable
+     multi-step sequences: email 1 on signup, email 2 after 3 days,
+     email 3 after 7 days.
+
+     IMPLEMENTED:
+     - AutomatedEmail entity: added DelayMinutes (int, default 0) and
+       TriggerEvent (nvarchar(100), nullable, indexed). A drip "sequence"
+       is just N AutomatedEmail rows sharing the same trigger_event with
+       different delay_minutes.
+     - New AutomatedEmailSchedule entity + automated_email_schedules table:
+       per-(automated_email, member) queue row with scheduled_for (UTC),
+       processed_at, failure_reason, and a snapshot of member email/uuid/
+       name + site_url so a later member rename doesn't silently retarget.
+       Indexes on (automated_email_id), (member_id), and the composite
+       (processed_at, scheduled_for) for the dispatcher.
+     - Migration: add-automated-email-drip.sql (idempotent ALTER + CREATE).
+     - IAutomatedEmailService.SendAsync now performs trigger fan-out:
+       resolves slug OR trigger_event to all matching active emails, dedups
+       per (email, member) against both already-sent recipients AND pending
+       schedule rows, then either sends immediately (delay=0) or enqueues a
+       schedule row.
+     - New IAutomatedEmailService.DispatchScheduledAsync handles a queued
+       row: re-checks email status + recipient suppression + late dedup,
+       reconstructs the Member snapshot, calls the existing send path, and
+       always marks the row processed (with FailureReason on error).
+     - New AutomatedEmailDripService (BackgroundService, polls every 60s
+       after a 20s startup delay, batch size 100); registered in Program.cs
+       alongside EmailAbTestWinnerService.
+     - AutomatedEmailEditor.razor: new Trigger event textbox + days/hours/
+       minutes inputs with live "send <X> after trigger fires" summary.
+     - Test fakes (FakeAutomatedEmailRepo, FakeAutomatedEmailService)
+       updated; 6 new tests cover delay-enqueue, trigger fan-out across
+       multiple emails, no-double-schedule, successful dispatch, dispatch
+       skip when email deactivated, and dispatch skip when address gets
+       suppressed between schedule and dispatch. All 531 Core tests pass;
+       full solution builds clean.
+
+
+================================================================================
+  13. TIERS (Tiers.razor + TierEditor.razor)
+================================================================================
+
+[x] TIER.1  [P0] ADD TIER REORDER / SORT DISPLAY
+     Currently: Grid display with no explicit ordering control.
+     Enhance: Add drag-to-reorder or sort-order input. Determines
+     the display order on the public pricing page.
+     Status: ✓ IMPLEMENTED — New Product.SortOrder int column (default 0)
+     with EF default value + IX_products_sort_order index. Idempotent
+     migration add-tier-sort-order.sql adds the column with a named
+     DEFAULT constraint, backfills row_number ordered by created_at/id
+     when every row is still at the 0 default (deterministic baseline),
+     and creates the index. IStripeService gains ReorderProductsAsync(
+     IReadOnlyList<string> orderedProductIds) — replaces SortOrder of
+     each product with its index in the list, ignores unknown ids, no-op
+     for ids whose SortOrder already matches, stamps UpdatedAt, single
+     SaveChangesAsync. UpdateProductRequest gains SortOrder int? so the
+     editor can persist a manual value. StripeService.GetProductsAsync
+     now orders by SortOrder then CreatedAt; CreateProductAsync assigns
+     SortOrder = (MAX existing SortOrder) + 1 so new tiers append to the
+     end of the public pricing display; UpdateProductAsync applies
+     request.SortOrder when provided. Tiers.razor: row container gets
+     id="tiers-sortable", each column gets data-tier-id="@product.Id",
+     each card header gets a bi-grip-vertical handle with
+     data-sortable-handle + cursor:grab (only when products.Count > 1),
+     card footer shows the 1-based display order "#N". New JS module
+     wwwroot/js/tiers-sortable.js mirrors collections-sortable.js but
+     posts the full ordered id array back via DotNetRef.invokeMethodAsync
+     ("OnTiersReordered", ids) so the server doesn't track index state.
+     [JSInvokable] OnTiersReordered calls ReorderProductsAsync, reloads
+     the list to refresh SortOrder values + display numbers, and surfaces
+     a success/failure alert; on failure the list is reloaded to revert
+     the UI to the persisted order. OnAfterRenderAsync lazy-imports the
+     module, creates DotNetObjectReference, and calls init/initSortable
+     after each render so the binding survives list re-renders;
+     DisposeAsync calls destroy + DisposeAsync + dotNetRef.Dispose with
+     JSDisconnectedException swallowed. TierEditor.razor adds a
+     "Display order" number input (min=0) below trial-days with hint
+     text linking to the drag-drop grid, bound to a new sortOrder field
+     loaded from product.SortOrder on edit and passed through
+     UpdateProductRequest.SortOrder on save; sortOrder is re-synced
+     from the reloaded product so the input reflects normalisation.
+     SortableJS is already loaded globally from App.razor. Test fake
+     FakeStripeService extended with ReorderProductsAsync (in-memory
+     index assignment) and UpdateProductAsync now honours
+     request.SortOrder; all 12 StripeServiceTests pass; full solution
+     builds clean.
+
+[x] TIER.2  [P1] ADD SUBSCRIBER COUNT PER TIER
+     Currently: Not shown.
+     Enhance: Display active subscriber count on each tier card.
+     Query from members_products join table.
+     Status: ✓ IMPLEMENTED — IStripeService.GetSubscriberCountsAsync(
+     productIds?, ct) returns a Dictionary<productId, int> of active
+     entitled-member counts derived from db.MembersProducts where
+     ExpiryAt IS NULL OR ExpiryAt > UtcNow (the same "currently
+     entitled" predicate used elsewhere in the membership pipeline);
+     when productIds is non-null the query is narrowed via
+     mp.ProductId.Contains(ids), products with zero subscribers are
+     omitted from the result so callers must default to 0. The EF LINQ
+     groups by ProductId and projects via ToDictionaryAsync so the
+     server returns a single keyed map without a per-product round-
+     trip. Tiers.razor injects the existing IStripeService, gains a
+     `subscriberCounts` Dictionary<string,int> field and a
+     LoadSubscriberCountsAsync() helper that runs immediately after
+     GetProductsAsync in OnInitializedAsync and after every successful
+     drag-reorder (OnTiersReordered) + Stripe sync (SyncProductAsync)
+     so the badges stay in sync with the cards. Failure of the count
+     query surfaces a soft statusMessage but leaves the page usable
+     (counts default to 0). Each tier card body now renders a
+     `bi-people-fill` icon + bold count + "active subscriber(s)" line
+     between the description and the per-cadence price block, with
+     pluralisation handled inline. FakeStripeService in
+     StripeServiceTests gained a backing
+     Dictionary<string,Dictionary<string,DateTime?>> for member×product
+     entitlements plus AddMemberToProduct/SetExpiry helpers and an
+     in-memory GetSubscriberCountsAsync that applies the same
+     null-or-future expiry filter and optional product-id narrowing.
+     Four new StripeServiceTests cover: empty when no entitlements,
+     ignoring expired rows (ExpiryAt in the past), counting both
+     perpetual (null ExpiryAt) and future-expiry rows, and the
+     productIds filter restricting the result set. Full build clean
+     (0 warnings, 0 errors) after also bumping MailKit to 4.16.0
+     (CVE-2026-41319 patch). Deployed to production.
+
+[ ] TIER.3  [P1] ADD REVENUE METRICS PER TIER
+     Show MRR (monthly recurring revenue) and total revenue per tier.
+     Pull from Stripe subscription data or local subscription records.
+
+[ ] TIER.4  [P1] ADD TIER COMPARISON TABLE PREVIEW
+     Show a preview of how tiers will appear on the public pricing page.
+     Side-by-side cards with benefits, pricing, and CTA buttons.
+
+[ ] TIER.5  [P2] ADD TIER MIGRATION TOOL
+     Allow bulk-moving members from one tier to another. Useful when
+     consolidating or restructuring pricing.
+
+
+================================================================================
+  14. OFFERS (Offers.razor + OfferEditor.razor)
+================================================================================
+
+[ ] OFFR.1  [P1] ADD OFFER PERFORMANCE METRICS
+     Currently: Shows redemption count only.
+     Enhance: Show conversion rate (visits to offer URL vs redemptions),
+     revenue attributed to offer, and a daily redemptions chart.
+
+[ ] OFFR.2  [P1] ADD OFFER EXPIRY DATE
+     Currently: Offers are perpetual until manually archived.
+     Enhance: Add optional expiry date field. Auto-archive expired offers.
+     Show countdown on active offers approaching expiry.
+
+[ ] OFFR.3  [P1] ADD OFFER URL QR CODE
+     Generate a QR code for the offer URL. Display in the sidebar for
+     easy sharing in print or presentations. Use a JS QR library.
+
+[ ] OFFR.4  [P2] ADD OFFER DUPLICATION
+     "Duplicate" action to create a new offer based on an existing one's
+     settings. Useful for seasonal promotions with similar structures.
+
+
+================================================================================
+  15. DONATIONS (Donations.razor)
+================================================================================
+
+[ ] DON.1   [P1] ADD DONATION ANALYTICS CHART
+     Currently: Only a total sum and raw table.
+     Enhance: Add a line chart showing donation revenue over time (daily
+     or weekly). Add average donation amount KPI card.
+
+[ ] DON.2   [P1] ADD DONOR RECOGNITION SETTINGS
+     Add toggle for "Show donor name on site". Add configurable
+     thank-you message that displays after successful donation.
+
+[ ] DON.3   [P2] ADD DONATION RECEIPT / THANK-YOU EMAIL
+     Auto-send a thank-you email to donors. Configurable template
+     in the automated emails system.
+
+[ ] DON.4   [P2] ADD DONATION GOALS
+     Set a fundraising goal amount and display progress bar. Show
+     "X% of $Y goal reached" on the donations page.
+
+
+================================================================================
+  16. RECOMMENDATIONS (Recommendations.razor + RecommendationEditor.razor)
+================================================================================
+
+[ ] REC.1   [P1] ADD DRAG-TO-REORDER
+     Currently: No explicit ordering.
+     Enhance: Add drag-and-drop reordering to control which recommendations
+     appear first on the public site.
+
+[ ] REC.2   [P1] ADD FAVICON AUTO-FETCH
+     Currently: Manual favicon URL input.
+     Enhance: Auto-fetch favicon from the recommendation URL on save.
+     Parse <link rel="icon"> from the target page HTML.
+
+[ ] REC.3   [P1] ADD RECIPROCAL RECOMMENDATION DETECTION
+     Check if recommended sites also recommend howtoosoftware.com.
+     Show a bidirectional indicator (↔) next to mutual recommendations.
+
+[ ] REC.4   [P2] ADD CLICK-THROUGH ANALYTICS CHART
+     Show daily clicks and subscribes per recommendation over time.
+     Help identify which recommendations drive the most value.
+
+
+================================================================================
+  17. SETTINGS (Settings.razor)
+================================================================================
+
+[ ] SET.1   [P0] ADD SETTINGS CHANGE CONFIRMATION
+     Currently: Single save button with no diff preview.
+     Enhance: Before saving, show a modal listing what changed
+     (old value → new value). Prevents accidental overwrites.
+
+[ ] SET.2   [P0] ADD NAVIGATION DRAG-TO-REORDER
+     Currently: Primary and secondary nav items use up/down buttons.
+     Enhance: Replace with drag-and-drop reordering (SortableJS).
+
+[ ] SET.3   [P1] ADD SETTINGS SECTIONS TAB NAVIGATION
+     Currently: All settings in one long scrollable page.
+     Enhance: Split into tabbed sections: General, Branding, Social,
+     Navigation, Meta & SEO, Code Injection. Each tab loads its own
+     section. Reduces scroll fatigue.
+
+[ ] SET.4   [P1] ADD THEME / ACCENT COLOR PREVIEW
+     Currently: Hex input for accent color.
+     Enhance: Add a visual color picker component and a small live
+     preview panel showing buttons, links, and badges in the selected
+     accent color.
+
+[ ] SET.5   [P1] ADD LOGO/ICON DIMENSION GUIDELINES
+     Show recommended dimensions (e.g. "Logo: 600x60px max") and
+     live preview of how the logo appears in the site header.
+
+[ ] SET.6   [P2] ADD SETTINGS EXPORT/IMPORT
+     Export all settings as JSON. Import to restore or clone to another
+     instance.
+
+[ ] SET.7   [P2] ADD TIMEZONE SEARCH
+     Currently: Timezone is a raw text input.
+     Enhance: Replace with a searchable dropdown of IANA timezone names.
+
+
+================================================================================
+  18. STAFF (Staff.razor + StaffEditor.razor)
+================================================================================
+
+[ ] STAFF.1 [P0] ADD TWO-FACTOR AUTHENTICATION MANAGEMENT
+     Currently: No 2FA support.
+     Enhance: Add TOTP-based 2FA (Google Authenticator, Authy). Show
+     setup QR code, backup codes, and enable/disable toggle on staff
+     profile. Enforce 2FA for Owner and Administrator roles.
+
+[ ] STAFF.2 [P0] ADD PASSWORD CHANGE / FORCE RESET
+     Currently: No visible password management in the admin UI.
+     Enhance: Add "Change Password" section to staff editor. Add
+     "Force Password Reset" action for admins managing other staff.
+     Send password reset email.
+
+[ ] STAFF.3 [P1] ADD STAFF ACTIVITY LOG
+     Show recent actions per staff member: posts published, settings
+     changed, members modified. Pull from audit log (see TODO 3.4).
+
+[ ] STAFF.4 [P1] ADD ROLE PERMISSION MATRIX DISPLAY
+     Currently: Roles are assigned but permissions are implicit.
+     Enhance: Show a clear permission matrix table: which roles can
+     access which features (posts, pages, members, settings, etc).
+     Read-only reference for admins.
+
+[ ] STAFF.5 [P2] ADD STAFF AVATAR MANAGEMENT
+     Currently: Profile image upload exists.
+     Enhance: Add crop/resize tool for avatar uploads. Show preview
+     at different sizes (header, comment, author card).
+
+[ ] STAFF.6 [P2] ADD INVITE LINK SHARING
+     Currently: Invites sent via email only.
+     Enhance: Generate a shareable invite link that can be copied
+     and sent through any channel.
+
+
+================================================================================
+  19. INTEGRATIONS (Integrations.razor + IntegrationEditor.razor)
+================================================================================
+
+[ ] INT.1   [P0] ADD WEBHOOK TEST / PING BUTTON
+     Currently: No way to test if a webhook endpoint works.
+     Enhance: Add "Send Test" button per webhook that sends a test
+     payload to the target URL and shows the response status/body.
+
+[ ] INT.2   [P0] ADD WEBHOOK DELIVERY LOG
+     Currently: Only "last triggered" timestamp visible.
+     Enhance: Show last 20 delivery attempts per webhook: timestamp,
+     event, response status, response time, payload preview. Allow
+     retrying failed deliveries.
+
+[ ] INT.3   [P1] ADD API KEY USAGE ANALYTICS
+     Currently: API keys shown but no usage tracking.
+     Enhance: Show request count per API key (last 24h, 7d, 30d),
+     last used timestamp, and top endpoints called.
+
+[ ] INT.4   [P1] ADD WEBHOOK SECRET / SIGNATURE VERIFICATION
+     Currently: Webhook target URLs receive unsigned payloads.
+     Enhance: Generate an HMAC secret per webhook. Include
+     X-Ghost-Signature header with each delivery. Document the
+     verification process.
+
+[ ] INT.5   [P2] ADD ZAPIER / MAKE INTEGRATION TEMPLATES
+     Show pre-built integration templates for popular platforms with
+     setup instructions and one-click webhook configuration.
+
+
+================================================================================
+  20. INDEXNOW (IndexNow.razor)
+================================================================================
+
+[ ] IDX.1   [P1] ADD SUBMISSION HISTORY LOG
+     Currently: No visibility into what URLs have been submitted.
+     Enhance: Show a table of recent IndexNow submissions: URL,
+     timestamp, response status, search engine. Stored in a new
+     indexnow_submissions table.
+
+[ ] IDX.2   [P1] ADD AUTO-SUBMIT ON PUBLISH
+     Currently: Unclear if auto-submission is active.
+     Enhance: Add explicit toggle "Auto-submit on post publish".
+     Show a count of auto-submissions today.
+
+[ ] IDX.3   [P2] ADD MANUAL URL SUBMISSION
+     Add a text input to manually submit any URL to IndexNow.
+     Useful for pages that were updated without a publish event.
+
+
+================================================================================
+  21. IMPORT / EXPORT (ImportExport.razor)
+================================================================================
+
+[ ] IE.1    [P0] ADD WORDPRESS IMPORT SUPPORT
+     Currently: Only Ghost JSON import supported.
+     Enhance: Accept WordPress WXR (XML) export files. Map WordPress
+     posts, pages, categories→tags, authors, and images to the
+     HowToSoftware schema. This is the #1 migration path request.
+
+[ ] IE.2    [P0] ADD IMPORT PREVIEW / DRY RUN
+     Currently: Import executes immediately with no preview.
+     Enhance: Parse the file and show a summary of what will be
+     imported (X posts, Y tags, Z authors) with conflict detection
+     (duplicate slugs, existing tags). Allow the user to confirm
+     before executing. Add a "Dry Run" toggle.
+
+[ ] IE.3    [P1] ADD SELECTIVE IMPORT
+     Currently: All-or-nothing import.
+     Enhance: After preview, allow selecting which items to import
+     via checkboxes. Deselecting items skips them.
+
+[ ] IE.4    [P1] ADD IMAGE EXPORT
+     Currently: JSON export only — no images.
+     Enhance: Add option to export as a ZIP containing the JSON plus
+     all content images from /content/images/. Complete backup.
+
+[ ] IE.5    [P1] ADD EXPORT SCHEDULING
+     Allow scheduling automatic weekly/monthly exports to a
+     configured location (local path or S3 bucket).
+
+[ ] IE.6    [P2] ADD MARKDOWN EXPORT FORMAT
+     Export posts as individual Markdown files with YAML front matter.
+     Useful for Hugo/Jekyll/static-site migration.
+
+
+================================================================================
+  22. LAYOUT & NAVIGATION (MainLayout.razor + NavMenu.razor)
+================================================================================
+
+[ ] NAV.1   [P0] ADD GLOBAL SEARCH (COMMAND PALETTE)
+     Currently: No global search in the admin.
+     Enhance: Add Ctrl+K command palette that searches across posts,
+     pages, members, tags, and settings. Show results grouped by type
+     with keyboard navigation. Navigate to any item instantly.
+
+[ ] NAV.2   [P1] ADD NOTIFICATION CENTER
+     Currently: No notification system.
+     Enhance: Add a bell icon in the top bar with a dropdown showing
+     recent events: new members, failed webhooks, import complete,
+     newsletter sent. Badge shows unread count.
+
+[ ] NAV.3   [P1] ADD COLLAPSIBLE SIDEBAR
+     Currently: Sidebar is always full-width.
+     Enhance: Add toggle to collapse sidebar to icon-only mode.
+     Save preference in localStorage. Helps on smaller screens.
+
+[ ] NAV.4   [P1] ADD BREADCRUMB NAVIGATION
+     Currently: Pages have back buttons but no breadcrumb trail.
+     Enhance: Show breadcrumbs below the header: Dashboard > Posts >
+     Edit "My Post Title". Helps orientation in deep navigation.
+
+[ ] NAV.5   [P2] ADD DARK/LIGHT THEME TOGGLE
+     Currently: Dark theme only.
+     Enhance: Add a theme toggle (dark/light/system). Save preference
+     in localStorage. Apply via CSS custom properties.
+
+[ ] NAV.6   [P2] ADD MOBILE-RESPONSIVE IMPROVEMENTS
+     Audit all pages for mobile usability. Ensure tables are
+     horizontally scrollable, modals are full-screen on mobile, and
+     touch targets are 44px minimum.
+
+
+================================================================================
+  23. LOGIN (Login.cshtml)
+================================================================================
+
+[ ] AUTH.1  [P0] ADD MAGIC LINK SIGN-IN OPTION
+     Currently: Password-only authentication.
+     Enhance: Add "Sign in with email link" option matching the
+     member-facing magic link flow. Sends a one-time login link to
+     the staff member's email. Fallback for forgotten passwords.
+
+[ ] AUTH.2  [P1] ADD LOGIN ATTEMPT NOTIFICATIONS
+     Currently: Brute-force protection exists but no admin notification.
+     Enhance: After 3 failed attempts, email the account owner. After
+     lockout, email all administrators.
+
+[ ] AUTH.3  [P2] ADD REMEMBER DEVICE / TRUSTED DEVICE
+     After successful 2FA verification, allow "Trust this device for
+     30 days" to skip 2FA on subsequent logins from the same browser.
+
+
+================================================================================
+  24. CROSS-CUTTING ENHANCEMENTS (All Pages)
+================================================================================
+
+[ ] CROSS.1 [P0] ADD TOAST NOTIFICATION SYSTEM
+     Currently: Success/error messages are inline divs that require
+     scrolling to see.
+     Enhance: Implement a toast notification component (bottom-right).
+     Auto-dismiss success messages after 5 seconds. Error toasts
+     persist until dismissed. Use for all save/delete/action feedback.
+
+[ ] CROSS.2 [P0] ADD UNSAVED CHANGES GUARD ON ALL EDITORS
+     Currently: Post editor has an unsaved indicator but no navigation
+     guard.
+     Enhance: On all editor pages, intercept navigation (both Blazor
+     routing and browser back/close) when unsaved changes exist.
+     Show "You have unsaved changes. Discard?" confirmation modal.
+
+[ ] CROSS.3 [P1] ADD LOADING SKELETONS
+     Currently: "Loading…" text messages.
+     Enhance: Replace with skeleton loading placeholders (CSS animated
+     gray bars matching the layout structure). Better perceived
+     performance and less layout shift.
+
+[ ] CROSS.4 [P1] ADD CONFIRMATION MODAL COMPONENT
+     Currently: Each page implements its own delete confirmation modal.
+     Enhance: Create a shared <ConfirmationModal> component with
+     configurable title, message, confirm text, and danger level.
+     Reuse across all delete/destructive actions.
+
+[ ] CROSS.5 [P1] ADD EMPTY STATE ILLUSTRATIONS
+     Currently: Empty lists show nothing or minimal text.
+     Enhance: Add illustrated empty states with helpful messages and
+     a primary action button. E.g. "No posts yet — Write your first
+     post" with a pen illustration and "New Post" button.
+
+[ ] CROSS.6 [P1] STANDARDIZE TABLE PATTERNS
+     Audit all list pages for consistent column widths, alignment,
+     hover effects, sort indicators, and pagination style. Create
+     shared <DataTable> component if patterns diverge significantly.
+
+[ ] CROSS.7 [P2] ADD KEYBOARD NAVIGATION FOR LISTS
+     Arrow keys to move between rows, Enter to open, Delete to
+     trigger delete confirmation. Escape to deselect.
+
+[ ] CROSS.8 [P2] ADD PAGE TRANSITION ANIMATIONS
+     Smooth fade/slide transitions between pages. Use Blazor's
+     NavigationManager with CSS transitions.
+
+
+================================================================================
+  IMPLEMENTATION PRIORITY MATRIX
+================================================================================
+
+  PHASE 1 — Foundation (do first, enables everything else)
+    NAV.1    Global search / command palette
+    CROSS.1  Toast notification system
+    CROSS.2  Unsaved changes guard
+    CROSS.4  Shared confirmation modal component
+    CROSS.3  Loading skeletons
+
+  PHASE 2 — Content Editing (highest daily-use impact)
+    POST.2   Keyboard shortcuts
+    POST.4   Autosave
+    POST.3   Word count / reading time
+    POST.6   Tag tokenized input
+    PAGE.1   Differentiate page editor
+    SET.2    Nav drag-to-reorder
+
+  PHASE 3 — Analytics & Insights
+    DASH.1   Trend indicators
+    DASH.2   Quick-glance analytics
+    ANAL.1   Real-time visitor map
+    ANAL.2   Comparison mode
+    NEWS.3   Newsletter analytics dashboard
+    OFFR.1   Offer performance metrics
+
+  PHASE 4 — Member Management
+    MEM.1    Bulk label assignment
+    MEM.2    Member CSV import
+    MEM.3    Activity timeline
+    MEM.4    Engagement filtering
+    MEM.5    Saved segments
+
+  PHASE 5 — Security & Administration
+    STAFF.1  Two-factor authentication
+    STAFF.2  Password management
+    AUTH.1   Magic link admin sign-in
+    INT.1    Webhook test button
+    INT.2    Webhook delivery log
+
+  PHASE 6 — Import/Export & Polish
+    IE.1     WordPress import
+    IE.2     Import preview / dry run
+    REDIR.1  Bulk redirect import
+    NAV.3    Collapsible sidebar
+    CROSS.5  Empty state illustrations
+    NAV.5    Dark/light theme toggle
+
+
+================================================================================
+  TOTAL ITEMS: 103
+    P0 (Must-have):    27
+    P1 (Should-have):  51
+    P2 (Nice-to-have): 25
+================================================================================

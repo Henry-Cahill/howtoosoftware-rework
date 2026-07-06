@@ -1,0 +1,238 @@
+@using HowToSoftware.Core.Entities
+
+<div class="nql-filter-builder">
+    @for (int i = 0; i < conditions.Count; i++)
+    {
+        var idx = i;
+        var condition = conditions[idx];
+
+        <div class="d-flex align-items-center gap-2 mb-2">
+            @if (idx > 0)
+            {
+                <span class="text-muted small fw-semibold" style="min-width: 32px;">AND</span>
+            }
+            else
+            {
+                <span style="min-width: 32px;"></span>
+            }
+
+            <!-- Field -->
+            <select class="form-select form-select-sm" style="max-width: 150px;"
+                    value="@condition.Field"
+                    @onchange="e => OnFieldChanged(idx, e.Value?.ToString())">
+                <option value="">Select field…</option>
+                <option value="tag">Tag</option>
+                <option value="author">Author</option>
+                <option value="status">Status</option>
+                <option value="featured">Featured</option>
+                <option value="visibility">Visibility</option>
+            </select>
+
+            <!-- Operator -->
+            <select class="form-select form-select-sm" style="max-width: 120px;"
+                    value="@condition.Operator"
+                    @onchange="e => OnOperatorChanged(idx, e.Value?.ToString())">
+                <option value="is">is</option>
+                <option value="is not">is not</option>
+            </select>
+
+            <!-- Value (dynamic based on field) -->
+            @if (condition.Field == "tag")
+            {
+                <select class="form-select form-select-sm"
+                        value="@condition.Value"
+                        @onchange="e => OnValueChanged(idx, e.Value?.ToString())">
+                    <option value="">Select tag…</option>
+                    @foreach (var tag in Tags)
+                    {
+                        <option value="@tag.Slug">@tag.Name</option>
+                    }
+                </select>
+            }
+            else if (condition.Field == "author")
+            {
+                <select class="form-select form-select-sm"
+                        value="@condition.Value"
+                        @onchange="e => OnValueChanged(idx, e.Value?.ToString())">
+                    <option value="">Select author…</option>
+                    @foreach (var author in Authors)
+                    {
+                        <option value="@author.Slug">@author.Name</option>
+                    }
+                </select>
+            }
+            else if (condition.Field == "featured")
+            {
+                <select class="form-select form-select-sm"
+                        value="@condition.Value"
+                        @onchange="e => OnValueChanged(idx, e.Value?.ToString())">
+                    <option value="">Select…</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                </select>
+            }
+            else if (condition.Field == "status")
+            {
+                <select class="form-select form-select-sm"
+                        value="@condition.Value"
+                        @onchange="e => OnValueChanged(idx, e.Value?.ToString())">
+                    <option value="">Select…</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                    <option value="scheduled">Scheduled</option>
+                </select>
+            }
+            else if (condition.Field == "visibility")
+            {
+                <select class="form-select form-select-sm"
+                        value="@condition.Value"
+                        @onchange="e => OnValueChanged(idx, e.Value?.ToString())">
+                    <option value="">Select…</option>
+                    <option value="public">Public</option>
+                    <option value="members">Members</option>
+                    <option value="paid">Paid</option>
+                    <option value="tiers">Tiers</option>
+                </select>
+            }
+            else
+            {
+                <select class="form-select form-select-sm" disabled>
+                    <option>Select a field first</option>
+                </select>
+            }
+
+            <!-- Remove button -->
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveCondition(idx)" title="Remove condition">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    }
+
+    @if (conditions.Count == 0)
+    {
+        <div class="text-center py-3">
+            <i class="bi bi-funnel text-muted fs-4 d-block mb-2"></i>
+            <p class="text-muted small mb-2">No filter rules yet. Add a condition to match posts automatically.</p>
+            <button class="btn btn-sm btn-primary" @onclick="AddCondition">
+                <i class="bi bi-plus-lg me-1"></i>Add first condition
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-primary" @onclick="AddCondition">
+                <i class="bi bi-plus-lg me-1"></i>Add condition
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Filter { get; set; }
+    [Parameter] public EventCallback<string?> FilterChanged { get; set; }
+    [Parameter] public List<Tag> Tags { get; set; } = [];
+    [Parameter] public List<User> Authors { get; set; } = [];
+
+    private List<FilterCondition> conditions = [];
+    private string? generatedFilter;
+
+    protected override void OnInitialized()
+    {
+        ParseFilter(Filter);
+        generatedFilter = Filter;
+    }
+
+    private void ParseFilter(string? filter)
+    {
+        conditions.Clear();
+
+        if (string.IsNullOrWhiteSpace(filter)) return;
+
+        foreach (var segment in filter.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var s = segment;
+            var negated = s.StartsWith('-');
+            if (negated) s = s[1..];
+
+            var colonIdx = s.IndexOf(':');
+            if (colonIdx <= 0 || colonIdx >= s.Length - 1) continue;
+
+            var key = s[..colonIdx].Trim().ToLowerInvariant();
+            var value = s[(colonIdx + 1)..].Trim();
+
+            if (key is "tag" or "author" or "status" or "featured" or "visibility")
+            {
+                conditions.Add(new FilterCondition
+                {
+                    Field = key,
+                    Operator = negated ? "is not" : "is",
+                    Value = value,
+                });
+            }
+        }
+    }
+
+    private string? BuildFilter()
+    {
+        var parts = conditions
+            .Where(c => !string.IsNullOrEmpty(c.Field) && !string.IsNullOrEmpty(c.Value))
+            .Select(c =>
+            {
+                var prefix = c.Operator == "is not" ? "-" : "";
+                return $"{prefix}{c.Field}:{c.Value}";
+            })
+            .ToList();
+
+        return parts.Count > 0 ? string.Join("+", parts) : null;
+    }
+
+    private async Task NotifyFilterChanged()
+    {
+        generatedFilter = BuildFilter();
+        await FilterChanged.InvokeAsync(generatedFilter);
+    }
+
+    private async Task OnFieldChanged(int idx, string? field)
+    {
+        conditions[idx].Field = field ?? "";
+        conditions[idx].Value = ""; // reset value when field changes
+        await NotifyFilterChanged();
+    }
+
+    private async Task OnOperatorChanged(int idx, string? op)
+    {
+        conditions[idx].Operator = op ?? "is";
+        await NotifyFilterChanged();
+    }
+
+    private async Task OnValueChanged(int idx, string? value)
+    {
+        conditions[idx].Value = value ?? "";
+        await NotifyFilterChanged();
+    }
+
+    private async Task AddCondition()
+    {
+        conditions.Add(new FilterCondition());
+        await NotifyFilterChanged();
+    }
+
+    private async Task RemoveCondition(int idx)
+    {
+        conditions.RemoveAt(idx);
+        await NotifyFilterChanged();
+    }
+
+    private sealed class FilterCondition
+    {
+        public string Field { get; set; } = "";
+        public string Operator { get; set; } = "is";
+        public string Value { get; set; } = "";
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

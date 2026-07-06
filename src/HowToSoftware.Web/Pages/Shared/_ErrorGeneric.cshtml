@@ -1,0 +1,98 @@
+@* Generic error fallback for unhandled status codes *@
+
+<style>
+    .error-page-generic {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .error-page-generic .error-container { max-width: 600px; }
+
+    .error-page-generic .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #a0aec0 0%, #718096 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .error-page-generic .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+
+    .error-page-generic .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+
+    .error-page-generic .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .error-page-generic .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .error-page-generic .error-btn-primary {
+        background: linear-gradient(135deg, #a0aec0 0%, #718096 100%);
+        color: white;
+    }
+
+    .error-page-generic .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(113, 128, 150, 0.4);
+        color: white;
+    }
+
+    .error-page-generic .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+</style>
+
+<section class="error-page-generic outer">
+    <div class="error-container inner">
+        <h1 class="error-code">@ViewData["Title"]</h1>
+        <h2 class="error-title">Something went wrong</h2>
+        <p class="error-description">
+            An unexpected error occurred. Don't worry, we're on it!
+        </p>
+
+        <div class="error-actions">
+            <a href="/" class="error-btn error-btn-primary">
+                🏠 Go Home
+            </a>
+            <a href="javascript:history.back()" class="error-btn error-btn-secondary">
+                ← Go Back
+            </a>
+        </div>
+    </div>
+</section>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

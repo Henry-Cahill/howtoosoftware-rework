@@ -1,0 +1,225 @@
+@page "/automated-emails/{AutomatedEmailId}/recipients"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IAutomatedEmailService AutomatedEmailService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Recipients — @(automatedEmail?.Name ?? "Automated Email") — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <a href="automated-emails/@AutomatedEmailId/edit" class="btn btn-sm btn-outline-secondary me-2">
+            <i class="bi bi-arrow-left me-1"></i>Back to editor
+        </a>
+        <h1 class="d-inline-block mb-0 ms-1">
+            Recipients
+            @if (automatedEmail is not null)
+            {
+                <span class="text-muted fs-5">— @automatedEmail.Name</span>
+            }
+        </h1>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (automatedEmail is null)
+{
+    <div class="alert alert-warning">Automated email not found.</div>
+}
+else
+{
+    <!-- Stats summary -->
+    <div class="row g-3 mb-3">
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Sent</div><div class="fs-4 fw-semibold">@stats.Sent</div>
+        </div></div></div>
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Delivered</div><div class="fs-4 fw-semibold text-success">@stats.Delivered</div>
+        </div></div></div>
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Opened</div><div class="fs-4 fw-semibold text-primary">@stats.Opened</div>
+            @if (stats.Delivered > 0)
+            {
+                <div class="small text-muted">@stats.OpenRate.ToString("P1")</div>
+            }
+        </div></div></div>
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Clicked</div><div class="fs-4 fw-semibold text-info">@stats.Clicked</div>
+        </div></div></div>
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Bounced</div><div class="fs-4 fw-semibold text-warning">@stats.Bounced</div>
+        </div></div></div>
+        <div class="col"><div class="card"><div class="card-body py-3 text-center">
+            <div class="small text-muted">Failed</div><div class="fs-4 fw-semibold text-danger">@stats.Failed</div>
+        </div></div></div>
+    </div>
+
+    <!-- Recipients table -->
+    @if (recipients is null || recipients.TotalCount == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-people display-4 d-block mb-2"></i>
+                No recipients yet.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Name</th>
+                            <th>Sent</th>
+                            <th>Delivered</th>
+                            <th>Opened</th>
+                            <th>Clicked</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in recipients.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <a href="members/@r.MemberId" class="text-decoration-none text-body">
+                                        @r.MemberEmail
+                                    </a>
+                                </td>
+                                <td class="text-muted small">@(r.MemberName ?? "—")</td>
+                                <td class="text-muted small">@r.CreatedAt.ToString("MMM d, yyyy HH:mm")</td>
+                                <td class="text-muted small">
+                                    @(r.DeliveredAt?.ToString("MMM d, yyyy HH:mm") ?? "—")
+                                </td>
+                                <td class="text-muted small">
+                                    @(r.OpenedAt?.ToString("MMM d, yyyy HH:mm") ?? "—")
+                                </td>
+                                <td class="text-muted small">
+                                    @(r.ClickedAt?.ToString("MMM d, yyyy HH:mm") ?? "—")
+                                </td>
+                                <td>
+                                    @RenderStatus(r)
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        @if (recipients.TotalPages > 1)
+        {
+            <nav class="mt-3">
+                <ul class="pagination pagination-sm justify-content-center">
+                    <li class="page-item @(recipients.HasPreviousPage ? "" : "disabled")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(page - 1)" disabled="@(!recipients.HasPreviousPage)">
+                            Previous
+                        </button>
+                    </li>
+                    <li class="page-item disabled">
+                        <span class="page-link">Page @(page) of @recipients.TotalPages</span>
+                    </li>
+                    <li class="page-item @(recipients.HasNextPage ? "" : "disabled")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(page + 1)" disabled="@(!recipients.HasNextPage)">
+                            Next
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        }
+
+        <div class="mt-2 small text-muted text-center">
+            @recipients.TotalCount recipient(s)
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string AutomatedEmailId { get; set; } = "";
+
+    private AutomatedEmail? automatedEmail;
+    private AutomatedEmailStatistics stats = AutomatedEmailStatistics.Empty;
+    private PagedResult<AutomatedEmailRecipient>? recipients;
+    private bool loaded;
+    private int page = 1;
+    private const int PageSize = 50;
+
+    protected override async Task OnInitializedAsync()
+    {
+        automatedEmail = await AutomatedEmailService.GetByIdAsync(AutomatedEmailId);
+        if (automatedEmail is null)
+        {
+            loaded = true;
+            return;
+        }
+        await LoadAsync();
+        loaded = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        stats = await AutomatedEmailService.GetStatisticsAsync(AutomatedEmailId);
+        recipients = await AutomatedEmailService.GetRecipientsAsync(AutomatedEmailId, page, PageSize);
+    }
+
+    private async Task GoToPageAsync(int target)
+    {
+        if (target < 1) target = 1;
+        page = target;
+        await LoadAsync();
+    }
+
+    private RenderFragment RenderStatus(AutomatedEmailRecipient r) => __builder =>
+    {
+        if (r.FailedAt is not null)
+        {
+            <span class="badge bg-danger-subtle text-danger-emphasis" title="@(r.FailureReason ?? "Send failed")">
+                <i class="bi bi-x-circle me-1"></i>Failed
+            </span>
+        }
+        else if (r.BouncedAt is not null)
+        {
+            <span class="badge bg-warning-subtle text-warning-emphasis" title="@(r.FailureReason ?? "Bounced")">
+                <i class="bi bi-arrow-return-left me-1"></i>Bounced
+            </span>
+        }
+        else if (r.ClickedAt is not null)
+        {
+            <span class="badge bg-info-subtle text-info-emphasis">
+                <i class="bi bi-link-45deg me-1"></i>Clicked
+            </span>
+        }
+        else if (r.OpenedAt is not null)
+        {
+            <span class="badge bg-primary-subtle text-primary-emphasis">
+                <i class="bi bi-envelope-open me-1"></i>Opened
+            </span>
+        }
+        else if (r.DeliveredAt is not null)
+        {
+            <span class="badge bg-success-subtle text-success-emphasis">
+                <i class="bi bi-check2-circle me-1"></i>Delivered
+            </span>
+        }
+        else
+        {
+            <span class="badge bg-secondary-subtle text-secondary-emphasis">
+                <i class="bi bi-send me-1"></i>Sent
+            </span>
+        }
+    };
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

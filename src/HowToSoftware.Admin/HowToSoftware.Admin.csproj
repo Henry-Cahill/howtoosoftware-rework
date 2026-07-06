@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>ee20b736-3d0a-4377-b9c9-8fa05972c9bf</UserSecretsId>
+    <!-- Ensure Blazor framework JS (blazor.web.js) is included during Docker restore
+         when .razor files aren't yet present in the restore layer -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HowToSoftware.Core\HowToSoftware.Core.csproj" />
+    <ProjectReference Include="..\HowToSoftware.Infrastructure\HowToSoftware.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+  </ItemGroup>
+
+</Project>

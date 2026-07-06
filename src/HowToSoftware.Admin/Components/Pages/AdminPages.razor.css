@@ -1,0 +1,14 @@
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.sortable-header:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.sortable-header i {
+    font-size: 0.7rem;
+    margin-left: 0.25rem;
+}

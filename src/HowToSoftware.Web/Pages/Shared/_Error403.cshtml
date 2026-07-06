@@ -1,0 +1,137 @@
+@* 403 Forbidden — ported from error-403.hbs *@
+
+<style>
+    .error-page-403 {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #faf5ff 0%, #e9d8fd 100%);
+    }
+
+    [data-theme="dark"] .error-page-403 {
+        background: linear-gradient(135deg, #1a1a2e 0%, #2d1f4a 100%);
+    }
+
+    .error-page-403 .error-container { max-width: 600px; }
+
+    .error-page-403 .error-gif {
+        width: 100%;
+        max-width: 350px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .error-page-403 .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .error-page-403 .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+
+    .error-page-403 .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+
+    .error-page-403 .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .error-page-403 .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .error-page-403 .error-btn-primary {
+        background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+        color: white;
+    }
+
+    .error-page-403 .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(159, 122, 234, 0.4);
+        color: white;
+    }
+
+    .error-page-403 .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+
+    .error-page-403 .classified-stamp {
+        margin-top: 2rem;
+        padding: 1rem 2rem;
+        background: rgba(128, 90, 213, 0.1);
+        border: 3px dashed #805ad5;
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #805ad5;
+        transform: rotate(-2deg);
+        display: inline-block;
+    }
+</style>
+
+<section class="error-page-403 outer">
+    <div class="error-container inner">
+        <img
+            src="https://media.giphy.com/media/1zSz5MVw4zKg0/giphy.gif"
+            alt="Access Denied - Nope"
+            class="error-gif"
+            loading="lazy"
+        />
+
+        <h1 class="error-code">403</h1>
+        <h2 class="error-title">Forbidden</h2>
+        <p class="error-description">
+            Nice try, but this area is off-limits! 🚫<br>
+            Even knowing the secret handshake won't help you here.
+        </p>
+
+        <div class="error-actions">
+            <a href="/" class="error-btn error-btn-primary">
+                🏠 Back to Safety
+            </a>
+            <a href="javascript:history.back()" class="error-btn error-btn-secondary">
+                ← Retreat!
+            </a>
+        </div>
+
+        <div class="classified-stamp">
+            🔒 TOP SECRET 🔒<br>
+            CLEARANCE LEVEL: NOT YOURS
+        </div>
+    </div>
+</section>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

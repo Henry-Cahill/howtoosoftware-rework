@@ -1,0 +1,95 @@
+/* Collections drag-and-drop styling */
+
+.editor-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #313244;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.feature-image-upload {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border: 2px dashed #313244;
+    border-radius: 8px;
+    color: #6c7086;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.feature-image-upload:hover {
+    border-color: #a78bfa;
+    color: #a78bfa;
+}
+
+::deep .feature-image-upload input[type="file"] {
+    display: none;
+}
+
+.feature-image-upload-compact {
+    padding: 0.5rem 0.875rem;
+}
+
+.feature-image-preview {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+}
+
+.feature-image-preview img {
+    max-width: 100%;
+    max-height: 280px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.feature-image-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+}
+
+#collection-posts-sortable {
+    user-select: none;
+}
+
+#collection-posts-sortable [data-post-id] {
+    transition: background-color 0.15s ease;
+}
+
+/* Dragging item - faded appearance */
+#collection-posts-sortable .sortable-drag {
+    opacity: 0.5;
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* Ghost element (placeholder while dragging) */
+#collection-posts-sortable .sortable-ghost {
+    opacity: 0.3;
+    background-color: #e7f3ff;
+    border: 2px dashed #0d6efd;
+}
+
+/* Handle - show grab cursor */
+[data-sortable-handle] {
+    touch-action: none;
+    user-select: none;
+}
+
+[data-sortable-handle]:active {
+    cursor: grabbing;
+}
+
+/* Highlight when hovering over draggable area */
+#collection-posts-sortable [data-post-id]:hover [data-sortable-handle] {
+    color: #0d6efd;
+}

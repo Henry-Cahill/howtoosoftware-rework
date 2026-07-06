@@ -1,0 +1,473 @@
+@page "/offers/new"
+@page "/offers/{OfferId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IOfferService OfferService
+@inject IStripeService StripeService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Offer" : $"Edit — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="offers" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Offers
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew && active)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showArchiveConfirm = true" disabled="@saving">
+                <i class="bi bi-archive me-1"></i>Archive
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Archive Confirmation Modal -->
+@if (showArchiveConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Archive Offer</h5>
+                    <button type="button" class="btn-close" @onclick="() => showArchiveConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to archive <strong>@name</strong>? The discount code will no longer work and the Stripe coupon will be deleted. Existing subscriptions with this discount will not be affected.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showArchiveConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ArchiveAsync">
+                        <i class="bi bi-archive me-1"></i>Archive
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- Offer Details Card -->
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Offer details</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="e.g. Launch Discount" />
+                        <div class="form-text">Internal name for this offer.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Code</label>
+                        <input type="text" class="form-control" @bind="code" placeholder="e.g. launch20" disabled="@(!IsNew)" />
+                        <div class="form-text">The code members enter at checkout. Cannot be changed after creation.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tier</label>
+                        @if (IsNew)
+                        {
+                            <select class="form-select" @bind="selectedProductId">
+                                <option value="">Select a tier…</option>
+                                @if (products is not null)
+                                {
+                                    @foreach (var p in products.Where(p => p.Active))
+                                    {
+                                        <option value="@p.Id">@p.Name</option>
+                                    }
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <input type="text" class="form-control" value="@(offer?.Product?.Name ?? "—")" disabled />
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Discount Card -->
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Discount</h6></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Type</label>
+                            <select class="form-select" @bind="discountType" disabled="@(!IsNew)">
+                                <option value="percent">Percentage</option>
+                                <option value="fixed">Fixed amount</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Amount</label>
+                            @if (discountType == "percent")
+                            {
+                                <div class="input-group">
+                                    <input type="number" class="form-control" @bind="discountAmount" min="1" max="100" disabled="@(!IsNew)" />
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="input-group">
+                                    <input type="number" class="form-control" @bind="discountAmount" min="1" disabled="@(!IsNew)" />
+                                    <span class="input-group-text">cents</span>
+                                </div>
+                                <div class="form-text">@FormatFixedDiscount()</div>
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Billing interval</label>
+                            <select class="form-select" @bind="interval" disabled="@(!IsNew)">
+                                <option value="month">Monthly</option>
+                                <option value="year">Yearly</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4">
+                            <label class="form-label">Duration</label>
+                            <select class="form-select" @bind="duration" disabled="@(!IsNew)">
+                                <option value="once">First payment only</option>
+                                <option value="repeating">Multiple months</option>
+                                <option value="forever">Forever</option>
+                            </select>
+                        </div>
+                        @if (duration == "repeating")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">Duration (months)</label>
+                                <input type="number" class="form-control" @bind="durationInMonths" min="1" max="36" disabled="@(!IsNew)" />
+                            </div>
+                        }
+                    </div>
+
+                    @if (discountType == "fixed")
+                    {
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-4">
+                                <label class="form-label">Currency</label>
+                                <select class="form-select" @bind="currency" disabled="@(!IsNew)">
+                                    <option value="usd">USD ($)</option>
+                                    <option value="eur">EUR (€)</option>
+                                    <option value="gbp">GBP (£)</option>
+                                </select>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Portal Customization Card -->
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Portal display</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" @bind="portalTitle" placeholder="e.g. Special offer!" />
+                        <div class="form-text">Shown to members on the offer landing page.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="portalDescription" placeholder="e.g. Get 20% off your first year"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && offer is not null)
+            {
+                <!-- Stripe Status Card -->
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Stripe coupon</h6></div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(offer.StripeCouponId))
+                        {
+                            <div class="mb-1">
+                                <i class="bi bi-check-circle text-success me-1"></i>
+                                <strong>Synced</strong>
+                            </div>
+                            <div class="small text-muted">
+                                Coupon: <code>@offer.StripeCouponId</code>
+                            </div>
+                        }
+                        else
+                        {
+                            <div>
+                                <i class="bi bi-exclamation-circle text-warning me-1"></i>
+                                <span>No Stripe coupon (Stripe not configured)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Offer URL Card -->
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Offer URL</h6></div>
+                    <div class="card-body">
+                        <div class="input-group">
+                            <input type="text" class="form-control form-control-sm" value="@GetOfferUrl()" readonly />
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="CopyOfferUrl" title="Copy">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">Share this link to apply the discount automatically.</div>
+                    </div>
+                </div>
+
+                <!-- Redemptions Card -->
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Redemptions</h6></div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <strong>@offer.Redemptions.Count</strong> total redemption@(offer.Redemptions.Count != 1 ? "s" : "")
+                        </div>
+                        @if (offer.Redemptions.Count > 0)
+                        {
+                            <div class="small">
+                                @foreach (var redemption in offer.Redemptions.OrderByDescending(r => r.CreatedAt).Take(5))
+                                {
+                                    <div class="text-muted">
+                                        @redemption.Member.Email — @redemption.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                                    </div>
+                                }
+                                @if (offer.Redemptions.Count > 5)
+                                {
+                                    <div class="text-muted mt-1">… and @(offer.Redemptions.Count - 5) more</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Info Card -->
+                <div class="card">
+                    <div class="card-header"><h6 class="mb-0">Info</h6></div>
+                    <div class="card-body small text-muted">
+                        <div>Created: @offer.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                        @if (offer.UpdatedAt.HasValue)
+                        {
+                            <div>Updated: @offer.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? OfferId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(OfferId);
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showArchiveConfirm;
+
+    private Offer? offer;
+    private List<Product>? products;
+
+    private string name = "";
+    private string code = "";
+    private string selectedProductId = "";
+    private string discountType = "percent";
+    private int discountAmount = 20;
+    private string interval = "month";
+    private string duration = "once";
+    private int durationInMonths = 3;
+    private string currency = "usd";
+    private string? portalTitle;
+    private string? portalDescription;
+    private bool active = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsNew)
+        {
+            products = await StripeService.GetProductsAsync();
+        }
+        else
+        {
+            offer = await OfferService.GetOfferAsync(OfferId!);
+            if (offer is null)
+            {
+                Navigation.NavigateTo("offers");
+                return;
+            }
+
+            name = offer.Name;
+            code = offer.Code;
+            selectedProductId = offer.ProductId ?? "";
+            discountType = offer.DiscountType;
+            discountAmount = offer.DiscountAmount;
+            interval = offer.Interval;
+            duration = offer.Duration;
+            durationInMonths = offer.DurationInMonths ?? 3;
+            currency = offer.Currency ?? "usd";
+            portalTitle = offer.PortalTitle;
+            portalDescription = offer.PortalDescription;
+            active = offer.Active;
+        }
+
+        loaded = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+        isError = false;
+
+        try
+        {
+            if (IsNew)
+            {
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    statusMessage = "Code is required";
+                    isError = true;
+                    return;
+                }
+                if (string.IsNullOrEmpty(selectedProductId))
+                {
+                    statusMessage = "Select a tier";
+                    isError = true;
+                    return;
+                }
+                if (discountAmount <= 0)
+                {
+                    statusMessage = "Discount amount must be greater than zero";
+                    isError = true;
+                    return;
+                }
+                if (discountType == "percent" && discountAmount > 100)
+                {
+                    statusMessage = "Percentage discount cannot exceed 100%";
+                    isError = true;
+                    return;
+                }
+
+                var created = await OfferService.CreateOfferAsync(new CreateOfferRequest
+                {
+                    Name = name.Trim(),
+                    Code = code.Trim(),
+                    ProductId = selectedProductId,
+                    DiscountType = discountType,
+                    DiscountAmount = discountAmount,
+                    Interval = interval,
+                    Duration = duration,
+                    DurationInMonths = duration == "repeating" ? durationInMonths : null,
+                    Currency = discountType == "fixed" ? currency : null,
+                    PortalTitle = portalTitle,
+                    PortalDescription = portalDescription,
+                });
+                Navigation.NavigateTo($"offers/{created.Id}/edit");
+            }
+            else
+            {
+                await OfferService.UpdateOfferAsync(OfferId!, new UpdateOfferRequest
+                {
+                    Name = name.Trim(),
+                    PortalTitle = portalTitle,
+                    PortalDescription = portalDescription,
+                });
+                offer = await OfferService.GetOfferAsync(OfferId!);
+                statusMessage = "Offer saved successfully";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (string.IsNullOrEmpty(OfferId)) return;
+
+        showArchiveConfirm = false;
+        saving = true;
+
+        try
+        {
+            await OfferService.ArchiveOfferAsync(OfferId);
+            Navigation.NavigateTo("offers");
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Archive failed: {ex.Message}";
+            isError = true;
+            saving = false;
+        }
+    }
+
+    private string GetOfferUrl()
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        // Offer URLs are on the public site, not the admin
+        var publicBase = baseUri.Replace("/admin", "").Replace(":5001", ":5000");
+        return $"{publicBase}/{code}";
+    }
+
+    private async Task CopyOfferUrl()
+    {
+        // Copy is handled by JavaScript interop in production; fallback display
+        statusMessage = "URL copied (use browser copy)";
+        isError = false;
+        await Task.CompletedTask;
+    }
+
+    private string FormatFixedDiscount()
+    {
+        var symbol = (currency?.ToUpperInvariant()) switch
+        {
+            "USD" or null => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            _ => currency?.ToUpperInvariant() + " ",
+        };
+        return $"{symbol}{discountAmount / 100m:F2}";
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

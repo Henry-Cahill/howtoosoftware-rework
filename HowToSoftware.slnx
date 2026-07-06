@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HowToSoftware.Admin/HowToSoftware.Admin.csproj" />
+    <Project Path="src/HowToSoftware.Core/HowToSoftware.Core.csproj" />
+    <Project Path="src/HowToSoftware.Infrastructure/HowToSoftware.Infrastructure.csproj" />
+    <Project Path="src/HowToSoftware.Migrator/HowToSoftware.Migrator.csproj" />
+    <Project Path="src/HowToSoftware.Web/HowToSoftware.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HowToSoftware.Admin.Tests/HowToSoftware.Admin.Tests.csproj" />
+    <Project Path="tests/HowToSoftware.Core.Tests/HowToSoftware.Core.Tests.csproj" />
+    <Project Path="tests/HowToSoftware.Infrastructure.Tests/HowToSoftware.Infrastructure.Tests.csproj" />
+    <Project Path="tests/HowToSoftware.Migrator.Tests/HowToSoftware.Migrator.Tests.csproj" />
+    <Project Path="tests/HowToSoftware.Web.Tests/HowToSoftware.Web.Tests.csproj" />
+  </Folder>
+</Solution>

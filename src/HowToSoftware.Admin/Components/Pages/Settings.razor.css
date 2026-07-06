@@ -1,0 +1,61 @@
+/* ─── Editor Top Bar ────────────────────────────────────────── */
+.editor-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #313244;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* ─── Image Upload ─────────────────────────────────────────── */
+.feature-image-upload {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border: 2px dashed #313244;
+    border-radius: 8px;
+    color: #6c7086;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.feature-image-upload:hover {
+    border-color: #a78bfa;
+    color: #a78bfa;
+}
+
+::deep .feature-image-upload input[type="file"] {
+    display: none;
+}
+
+/* ─── Branding Previews ────────────────────────────────────── */
+.branding-preview {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+}
+
+.branding-preview img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 8px;
+    object-fit: contain;
+}
+
+.branding-preview img.icon-preview {
+    max-height: 80px;
+    max-width: 80px;
+}
+
+.branding-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}

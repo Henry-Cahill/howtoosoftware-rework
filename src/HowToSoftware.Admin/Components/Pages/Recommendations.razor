@@ -1,0 +1,109 @@
+@page "/recommendations"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IRecommendationService RecommendationService
+@rendermode InteractiveServer
+
+<PageTitle>Recommendations — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Recommendations</h1>
+    <a href="recommendations/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New recommendation</a>
+</div>
+
+@if (recommendations is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (recommendations.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-hand-thumbs-up display-4 d-block mb-2"></i>
+            No recommendations yet. Recommend other publications you enjoy.
+        </div>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Title</th>
+                    <th>URL</th>
+                    <th>One-click subscribe</th>
+                    <th>Clicks</th>
+                    <th>Subscribes</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rec in recommendations)
+                {
+                    <tr>
+                        <td style="width: 32px;">
+                            @if (!string.IsNullOrEmpty(rec.Favicon))
+                            {
+                                <img src="@rec.Favicon" alt="" width="24" height="24" class="rounded" />
+                            }
+                            else
+                            {
+                                <i class="bi bi-globe text-muted"></i>
+                            }
+                        </td>
+                        <td>
+                            <strong>@rec.Title</strong>
+                            @if (!string.IsNullOrEmpty(rec.Excerpt))
+                            {
+                                <div class="small text-muted">@rec.Excerpt</div>
+                            }
+                        </td>
+                        <td class="small text-muted text-truncate" style="max-width: 250px;">@rec.Url</td>
+                        <td>
+                            @if (rec.OneClickSubscribe)
+                            {
+                                <span class="badge bg-success">Yes</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">No</span>
+                            }
+                        </td>
+                        <td>@(clickCounts.GetValueOrDefault(rec.Id, 0))</td>
+                        <td>@(subscribeCounts.GetValueOrDefault(rec.Id, 0))</td>
+                        <td>
+                            <a href="recommendations/@rec.Id/edit" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Recommendation>? recommendations;
+    private Dictionary<string, int> clickCounts = new();
+    private Dictionary<string, int> subscribeCounts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        recommendations = await RecommendationService.GetAllAsync();
+
+        foreach (var rec in recommendations)
+        {
+            clickCounts[rec.Id] = await RecommendationService.GetClickCountAsync(rec.Id);
+            subscribeCounts[rec.Id] = await RecommendationService.GetSubscribeCountAsync(rec.Id);
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

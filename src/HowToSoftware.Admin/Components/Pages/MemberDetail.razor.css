@@ -1,0 +1,8 @@
+.label-remove-btn {
+    line-height: 1;
+    font-size: 0.85rem;
+}
+
+.label-remove-btn:hover {
+    color: #dc3545 !important;
+}

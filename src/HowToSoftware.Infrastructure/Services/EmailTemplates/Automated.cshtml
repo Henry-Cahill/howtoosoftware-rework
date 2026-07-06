@@ -1,0 +1,229 @@
+@using HowToSoftware.Core.Interfaces
+@model EmailTemplateModel
+@{
+    // ── Color helpers ───────────────────────────────────────────
+    var isDark = Model.BackgroundColor == "dark";
+    var bgColor = isDark ? "#15212A" : "#ffffff";
+    var textColor = isDark ? "#ffffff" : "#15212A";
+    var secondaryText = isDark ? "#cad0d6" : "#15212A";
+    var mutedText = "#738a94";
+    var subtleBorder = isDark ? "#2e3d4f" : "#e5eff5";
+    var codeBg = isDark ? "#1d2d3d" : "#f4f6f9";
+    var accent = Model.AccentColor ?? (isDark ? "#ffffff" : "#15212A");
+
+    var dividerColor = Model.DividerColor ?? subtleBorder;
+    var resolvedLinkColor = Model.LinkColor == "accent" ? accent : (Model.LinkColor ?? accent);
+    var resolvedButtonColor = Model.ButtonColor == "accent" ? accent : (Model.ButtonColor ?? accent);
+    var headerBg = Model.HeaderBackgroundColor == "transparent" ? bgColor : (Model.HeaderBackgroundColor ?? bgColor);
+    var titleColor = Model.PostTitleColor ?? textColor;
+
+    // ── Font helpers ────────────────────────────────────────────
+    var serifStack = "Georgia, Times, 'Times New Roman', serif";
+    var sansStack = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    var titleFont = Model.TitleFontCategory == "serif" ? serifStack : sansStack;
+    var bodyFont = Model.BodyFontCategory == "serif" ? serifStack : sansStack;
+
+    // ── Button style helpers ────────────────────────────────────
+    var btnRadius = Model.ButtonCorners switch { "square" => "0", "pill" => "999px", _ => "5px" };
+    var btnIsFill = Model.ButtonStyle == "fill";
+    var btnBg = btnIsFill ? resolvedButtonColor : "transparent";
+    var btnTextColor = btnIsFill ? "#ffffff" : resolvedButtonColor;
+    var btnBorder = btnIsFill ? "none" : $"2px solid {resolvedButtonColor}";
+
+    // ── Link style ──────────────────────────────────────────────
+    var linkDecoration = Model.LinkStyle == "underline" ? "underline" : "none";
+}
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no">
+<title>@Model.PostTitle</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<style type="text/css">
+    table { border-collapse: collapse; }
+    td, th { font-family: sans-serif; }
+</style>
+<![endif]-->
+<style type="text/css">
+    /* Reset */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; background-color: @bgColor; }
+
+    /* Wrapper */
+    .wrapper { width: 100%; table-layout: fixed; background-color: @bgColor; padding: 0; }
+    .main { background-color: @bgColor; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; }
+
+    /* Header */
+    .header { text-align: @Model.TitleAlignment; background-color: @headerBg; }
+    .header-icon { width: 48px; height: 48px; border-radius: 6px; }
+    .header-title { font-family: @titleFont; font-size: 14px; font-weight: 600; color: @textColor; text-decoration: none; }
+
+    /* Title section */
+    .post-title {
+        font-family: @titleFont;
+        font-size: 28px;
+        font-weight: @Model.TitleFontWeight;
+        line-height: 1.3;
+        color: @titleColor;
+        text-align: @Model.TitleAlignment;
+        padding: 0;
+        margin: 0;
+    }
+
+    /* Body content */
+    .post-content { font-family: @bodyFont; font-size: 17px; line-height: 1.6; color: @secondaryText; word-break: break-word; }
+    .post-content p { margin: 0 0 1.5em; }
+    .post-content a { color: @resolvedLinkColor; text-decoration: @linkDecoration; }
+    .post-content img { max-width: 100%; height: auto; }
+    .post-content blockquote {
+        border-left: 3px solid @accent;
+        padding-left: 16px;
+        margin: 1.5em 0;
+        margin-left: 0;
+        font-style: italic;
+        color: @mutedText;
+    }
+    .post-content pre {
+        background-color: @codeBg;
+        padding: 16px;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 14px;
+    }
+    .post-content code { font-family: Menlo, Consolas, 'Liberation Mono', monospace; font-size: 14px; }
+    .post-content hr { border: 0; border-top: 1px solid @dividerColor; margin: 2em 0; }
+    .post-content h2 { font-family: @titleFont; font-size: 24px; font-weight: bold; color: @textColor; margin: 1.5em 0 0.5em; }
+    .post-content h3 { font-family: @titleFont; font-size: 20px; font-weight: bold; color: @textColor; margin: 1.5em 0 0.5em; }
+    .post-content ul, .post-content ol { margin: 0 0 1.5em; padding-left: 1.5em; }
+    .post-content li { margin-bottom: 0.5em; }
+
+    /* Koenig card styles */
+    .post-content .kg-button-card { text-align: center; margin: 1.5em 0; }
+    .post-content .kg-button-card a {
+        display: inline-block;
+        padding: 12px 24px;
+        background-color: @btnBg;
+        color: @btnTextColor !important;
+        border: @btnBorder;
+        border-radius: @btnRadius;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 16px;
+    }
+    .post-content .kg-callout-card { padding: 20px 28px; border-radius: 6px; margin: 1.5em 0; }
+
+    /* Divider */
+    .divider { border: 0; border-top: 1px solid @dividerColor; margin: 0; }
+
+    /* Footer */
+    .footer { text-align: center; }
+    .footer-content { font-family: @sansStack; font-size: 13px; line-height: 1.5; color: @mutedText; }
+    .footer a { color: @mutedText; text-decoration: underline; }
+
+    /* Mobile */
+    @@media only screen and (max-width: 620px) {
+        .main { width: 100% !important; }
+        .post-title { font-size: 24px !important; }
+        .post-content { font-size: 16px !important; }
+        td.pad { padding-left: 20px !important; padding-right: 20px !important; }
+    }
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:@bgColor;">
+<center class="wrapper" style="width:100%;table-layout:fixed;background-color:@bgColor;">
+<table class="main" width="600" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;width:100%;max-width:600px;">
+
+    @* ── Header ─────────────────────────────────────────────── *@
+    @if (Model.ShowHeaderIcon || Model.ShowHeaderTitle)
+    {
+    <tr>
+        <td class="header pad" style="padding:27px 40px 20px;text-align:@Model.TitleAlignment;background-color:@headerBg;">
+            <table cellpadding="0" cellspacing="0" role="presentation" style="@(Model.TitleAlignment == "center" ? "margin:0 auto;" : Model.TitleAlignment == "right" ? "margin-left:auto;" : "")">
+                <tr>
+                    @if (Model.ShowHeaderIcon && !string.IsNullOrEmpty(Model.SiteIconUrl))
+                    {
+                    <td style="vertical-align:middle;padding-right:@(Model.ShowHeaderTitle ? "10" : "0")px;">
+                        <a href="@Model.SiteUrl" style="text-decoration:none;">
+                            <img class="header-icon" src="@Model.SiteIconUrl" alt="@Model.SiteTitle" width="48" height="48" style="width:48px;height:48px;border-radius:6px;border:0;">
+                        </a>
+                    </td>
+                    }
+                    @if (Model.ShowHeaderTitle && !string.IsNullOrEmpty(Model.SiteTitle))
+                    {
+                    <td style="vertical-align:middle;">
+                        <a class="header-title" href="@Model.SiteUrl" style="font-family:@titleFont;font-size:14px;font-weight:600;color:@textColor;text-decoration:none;">@Model.SiteTitle</a>
+                    </td>
+                    }
+                </tr>
+            </table>
+        </td>
+    </tr>
+    }
+
+    @* ── Title ──────────────────────────────────────────────── *@
+    @if (Model.ShowPostTitleSection)
+    {
+    <tr>
+        <td class="pad" style="padding:@(Model.ShowHeaderIcon || Model.ShowHeaderTitle ? "28" : "40")px 40px 0;">
+            <h1 class="post-title" style="font-family:@titleFont;font-size:28px;font-weight:@Model.TitleFontWeight;line-height:1.3;color:@titleColor;text-align:@Model.TitleAlignment;margin:0;padding:0;">@Model.PostTitle</h1>
+        </td>
+    </tr>
+    }
+
+    @* ── Body content ───────────────────────────────────────── *@
+    @if (!string.IsNullOrEmpty(Model.HtmlBody))
+    {
+    <tr>
+        <td class="post-content pad" style="padding:24px 40px 0;font-family:@bodyFont;font-size:17px;line-height:1.6;color:@secondaryText;word-break:break-word;">
+            @Raw(Model.HtmlBody)
+        </td>
+    </tr>
+    }
+
+    @* ── Footer divider ─────────────────────────────────────── *@
+    <tr>
+        <td class="pad" style="padding:32px 40px 0;">
+            <table cellpadding="0" cellspacing="0" role="presentation" width="100%">
+                <tr><td style="border-top:1px solid @dividerColor;"></td></tr>
+            </table>
+        </td>
+    </tr>
+
+    @* ── Footer ─────────────────────────────────────────────── *@
+    <tr>
+        <td class="footer pad" style="padding:24px 40px;text-align:center;">
+            @if (!string.IsNullOrEmpty(Model.SiteTitle))
+            {
+            <div class="footer-content" style="font-family:@sansStack;font-size:13px;line-height:1.5;color:@mutedText;margin-bottom:12px;">@Model.SiteTitle &copy; @DateTime.UtcNow.Year</div>
+            }
+            @if (!string.IsNullOrEmpty(Model.UnsubscribeUrl))
+            {
+            <div class="footer-content" style="font-family:@sansStack;font-size:13px;line-height:1.5;color:@mutedText;">
+                <a href="@Model.UnsubscribeUrl" style="color:@mutedText;text-decoration:underline;">Manage your account</a>
+            </div>
+            }
+        </td>
+    </tr>
+
+</table>
+</center>
+</body>
+</html>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

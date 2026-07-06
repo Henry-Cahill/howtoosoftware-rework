@@ -1,0 +1,505 @@
+@page "/automated-emails/new"
+@page "/automated-emails/{AutomatedEmailId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using HowToSoftware.Admin.Services
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IAutomatedEmailService AutomatedEmailService
+@inject ISlugGenerator SlugGenerator
+@inject ILexicalRenderer LexicalRenderer
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Automated Email" : $"Edit — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="automated-emails" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Automated Emails
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- General Settings -->
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">General</h6></div>
+                <div class="card-body">
+                    <!-- Name -->
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="e.g. Welcome aboard!" />
+                        <div class="form-text">This is also used as the email heading.</div>
+                    </div>
+
+                    <!-- Slug -->
+                    <div class="mb-3">
+                        <label class="form-label">Slug</label>
+                        <input type="text" class="form-control" @bind="slug" placeholder="auto-generated" />
+                        <div class="form-text">Used to trigger the email programmatically (e.g. <code>welcome</code>).</div>
+                        @{
+                            var triggerDescription = AutomatedEmailTriggerCatalog.GetDescription(slug);
+                        }
+                        @if (triggerDescription is not null)
+                        {
+                            <div class="alert alert-info py-2 px-3 mt-2 mb-0 small">
+                                <i class="bi bi-lightning-charge me-1"></i><strong>Trigger:</strong> @triggerDescription
+                            </div>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(slug))
+                        {
+                            <div class="alert alert-secondary py-2 px-3 mt-2 mb-0 small">
+                                <i class="bi bi-code-slash me-1"></i><strong>Custom trigger:</strong>
+                                fired programmatically by calling <code>IAutomatedEmailService.SendAsync("@slug", …)</code>.
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Subject -->
+                    <div class="mb-3">
+                        <label class="form-label">Subject</label>
+                        <input type="text" class="form-control" @bind="subject"
+                               placeholder="e.g. 👋 Welcome to {{site_title}}!" />
+                        <div class="form-text">Use <code>@("{{"+"site_title"+"}}")</code> to insert the site name.</div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" @bind="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+
+                    <!-- Trigger event (drip / fan-out) -->
+                    <div class="mb-3">
+                        <label class="form-label">Trigger event <span class="text-muted small">(optional)</span></label>
+                        <input type="text" class="form-control" @bind="triggerEvent"
+                               placeholder="e.g. signup" />
+                        <div class="form-text">
+                            When set, this email also fires whenever
+                            <code>SendAsync("@(string.IsNullOrWhiteSpace(triggerEvent) ? "event-name" : triggerEvent)", member, …)</code>
+                            is called. Multiple emails sharing the same trigger event form a
+                            <strong>drip sequence</strong> — each with its own delay below.
+                        </div>
+                    </div>
+
+                    <!-- Delay (drip) -->
+                    <div class="mb-0">
+                        <label class="form-label">Send delay</label>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" min="0" max="365"
+                                           @bind="delayDays" />
+                                    <span class="input-group-text">days</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" min="0" max="23"
+                                           @bind="delayHours" />
+                                    <span class="input-group-text">hrs</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" min="0" max="59"
+                                           @bind="delayMinutes" />
+                                    <span class="input-group-text">min</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            @if (TotalDelayMinutes <= 0)
+                            {
+                                <span>Send <strong>immediately</strong> when triggered.</span>
+                            }
+                            else
+                            {
+                                <span>Send <strong>@FormatDelay(TotalDelayMinutes)</strong> after trigger fires.</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sender Settings -->
+            <div class="card mt-4">
+                <div class="card-header"><h6 class="mb-0">Sender</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Sender name</label>
+                        <input type="text" class="form-control" @bind="senderName" placeholder="Site title" />
+                        <div class="form-text">Defaults to site title if empty.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Sender email</label>
+                        <input type="email" class="form-control" @bind="senderEmail"
+                               placeholder="noreply@your-domain.com" />
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label">Reply-to address</label>
+                        <input type="email" class="form-control" @bind="senderReplyTo"
+                               placeholder="Optional reply-to address" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content -->
+            <div class="card mt-4">
+                <div class="card-header"><h6 class="mb-0">Content (Lexical JSON)</h6></div>
+                <div class="card-body">
+                    <textarea class="form-control font-monospace" rows="10" @bind="lexical"
+                              placeholder='{"root":{"children":[{"children":[{"type":"text","text":"Your email content here."}],"type":"paragraph"}],"type":"root"}}'></textarea>
+                    <div class="form-text">Lexical editor JSON. The content will be rendered to HTML before sending.</div>
+                    @if (!string.IsNullOrWhiteSpace(lexical))
+                    {
+                        <div class="mt-3">
+                            <label class="form-label d-flex align-items-center gap-2">
+                                <i class="bi bi-eye"></i> Preview
+                            </label>
+                            <div class="snippet-preview border rounded p-3">
+                                @((MarkupString)(LexicalRenderer.Render(lexical) ?? "<p class='text-muted fst-italic'>Nothing to render.</p>"))
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && automatedEmail is not null)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Details</h6>
+                        <dl class="mb-0">
+                            <dt class="text-muted">ID</dt>
+                            <dd class="font-monospace small">@automatedEmail.Id</dd>
+
+                            <dt class="text-muted">Slug</dt>
+                            <dd>@automatedEmail.Slug</dd>
+
+                            <dt class="text-muted">Trigger</dt>
+                            <dd>@AutomatedEmailTriggerCatalog.GetDescriptionOrFallback(automatedEmail.Slug)</dd>
+
+                            <dt class="text-muted">Status</dt>
+                            <dd>
+                                <span class="badge @(automatedEmail.Status == "active" ? "bg-success" : "bg-secondary")">
+                                    @automatedEmail.Status
+                                </span>
+                            </dd>
+
+                            <dt class="text-muted">Sent to</dt>
+                            <dd>
+                                <a href="automated-emails/@automatedEmail.Id/recipients" class="text-decoration-none">
+                                    @stats.Sent recipient(s)
+                                </a>
+                            </dd>
+
+                            <dt class="text-muted">Created</dt>
+                            <dd>@automatedEmail.CreatedAt.ToString("MMM d, yyyy HH:mm")</dd>
+
+                            @if (automatedEmail.UpdatedAt.HasValue)
+                            {
+                                <dt class="text-muted">Updated</dt>
+                                <dd>@automatedEmail.UpdatedAt.Value.ToString("MMM d, yyyy HH:mm")</dd>
+                            }
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Delivery statistics</h6>
+                        <a href="automated-emails/@automatedEmail.Id/recipients" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-people me-1"></i>Recipients
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 text-center">
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Sent</div>
+                                    <div class="fs-5 fw-semibold">@stats.Sent</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Delivered</div>
+                                    <div class="fs-5 fw-semibold text-success">@stats.Delivered</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Opened</div>
+                                    <div class="fs-5 fw-semibold text-primary">@stats.Opened</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Clicked</div>
+                                    <div class="fs-5 fw-semibold text-info">@stats.Clicked</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Bounced</div>
+                                    <div class="fs-5 fw-semibold text-warning">@stats.Bounced</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <div class="small text-muted">Failed</div>
+                                    <div class="fs-5 fw-semibold text-danger">@stats.Failed</div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr class="my-3" />
+                        <dl class="mb-0">
+                            <dt class="text-muted">Open rate</dt>
+                            <dd>@(stats.Delivered > 0 ? stats.OpenRate.ToString("P1") : "—")</dd>
+                            <dt class="text-muted">Click rate</dt>
+                            <dd>@(stats.Delivered > 0 ? stats.ClickRate.ToString("P1") : "—")</dd>
+                            <dt class="text-muted">Delivery rate</dt>
+                            <dd class="mb-0">@(stats.Sent > 0 ? stats.DeliveryRate.ToString("P1") : "—")</dd>
+                        </dl>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete automated email</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the automated email <strong>@name</strong>?
+                       All recipient records will be removed. This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? AutomatedEmailId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(AutomatedEmailId);
+
+    // State
+    private AutomatedEmail? automatedEmail;
+    private bool loaded;
+    private bool saving;
+    private bool showDeleteConfirm;
+    private string? statusMessage;
+    private bool isError;
+    private int recipientCount;
+    private AutomatedEmailStatistics stats = AutomatedEmailStatistics.Empty;
+
+    // Form fields
+    private string name = "";
+    private string slug = "";
+    private string subject = "";
+    private string status = "active";
+    private string? senderName;
+    private string? senderEmail;
+    private string? senderReplyTo;
+    private string? lexical;
+    private string? triggerEvent;
+    private int delayDays;
+    private int delayHours;
+    private int delayMinutes;
+
+    private int TotalDelayMinutes => Math.Max(0, delayDays) * 24 * 60
+                                   + Math.Max(0, delayHours) * 60
+                                   + Math.Max(0, delayMinutes);
+
+    private static string FormatDelay(int totalMinutes)
+    {
+        if (totalMinutes <= 0) return "immediately";
+        var d = totalMinutes / 1440;
+        var h = (totalMinutes % 1440) / 60;
+        var m = totalMinutes % 60;
+        var parts = new List<string>(3);
+        if (d > 0) parts.Add($"{d} day{(d == 1 ? "" : "s")}");
+        if (h > 0) parts.Add($"{h} hour{(h == 1 ? "" : "s")}");
+        if (m > 0) parts.Add($"{m} minute{(m == 1 ? "" : "s")}");
+        return string.Join(" ", parts);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            automatedEmail = await AutomatedEmailService.GetByIdAsync(AutomatedEmailId!);
+            if (automatedEmail is null)
+            {
+                Navigation.NavigateTo("automated-emails");
+                return;
+            }
+            LoadForm(automatedEmail);
+            recipientCount = await AutomatedEmailService.GetRecipientCountAsync(automatedEmail.Id);
+            stats = await AutomatedEmailService.GetStatisticsAsync(automatedEmail.Id);
+        }
+        loaded = true;
+    }
+
+    private void LoadForm(AutomatedEmail ae)
+    {
+        name = ae.Name;
+        slug = ae.Slug;
+        subject = ae.Subject;
+        status = ae.Status;
+        senderName = ae.SenderName;
+        senderEmail = ae.SenderEmail;
+        senderReplyTo = ae.SenderReplyTo;
+        lexical = ae.Lexical;
+        triggerEvent = ae.TriggerEvent;
+        var total = Math.Max(0, ae.DelayMinutes);
+        delayDays = total / 1440;
+        delayHours = (total % 1440) / 60;
+        delayMinutes = total % 60;
+    }
+
+    private void ApplyForm(AutomatedEmail ae)
+    {
+        ae.Name = name.Trim();
+        ae.Slug = slug;
+        ae.Subject = subject.Trim();
+        ae.Status = status;
+        ae.SenderName = TrimOrNull(senderName);
+        ae.SenderEmail = TrimOrNull(senderEmail);
+        ae.SenderReplyTo = TrimOrNull(senderReplyTo);
+        ae.Lexical = TrimOrNull(lexical);
+        ae.TriggerEvent = TrimOrNull(triggerEvent);
+        ae.DelayMinutes = TotalDelayMinutes;
+    }
+
+    private async Task SaveAsync()
+    {
+        statusMessage = null;
+        isError = false;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(subject))
+        {
+            statusMessage = "Subject is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            slug = string.IsNullOrWhiteSpace(slug)
+                ? SlugGenerator.GenerateSlug(name)
+                : SlugGenerator.GenerateSlug(slug);
+
+            // Deduplicate slug
+            var existing = await AutomatedEmailService.GetBySlugAsync(slug);
+            if (existing is not null && existing.Id != (automatedEmail?.Id ?? ""))
+            {
+                var baseSlug = slug;
+                var counter = 2;
+                do
+                {
+                    slug = $"{baseSlug}-{counter}";
+                    existing = await AutomatedEmailService.GetBySlugAsync(slug);
+                    counter++;
+                } while (existing is not null && existing.Id != (automatedEmail?.Id ?? ""));
+            }
+
+            if (IsNew)
+            {
+                automatedEmail = new AutomatedEmail();
+                ApplyForm(automatedEmail);
+                automatedEmail = await AutomatedEmailService.CreateAsync(automatedEmail);
+                statusMessage = "Automated email created!";
+                Navigation.NavigateTo($"automated-emails/{automatedEmail.Id}/edit", replace: true);
+            }
+            else
+            {
+                ApplyForm(automatedEmail!);
+                await AutomatedEmailService.UpdateAsync(automatedEmail!);
+                statusMessage = "Automated email saved!";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (automatedEmail is null) return;
+        await AutomatedEmailService.DeleteAsync(automatedEmail.Id);
+        Navigation.NavigateTo("automated-emails");
+    }
+
+    private static string? TrimOrNull(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

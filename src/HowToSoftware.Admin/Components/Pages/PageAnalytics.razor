@@ -1,0 +1,323 @@
+@page "/analytics/page"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IAnalyticsDashboardService AnalyticsService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Page Analytics — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <a href="/analytics" class="text-decoration-none small">
+            <i class="bi bi-arrow-left"></i> Back to Analytics
+        </a>
+        <h1 class="mb-0 mt-1">Page Analytics</h1>
+        @if (!string.IsNullOrEmpty(Path))
+        {
+            <div class="text-muted small mt-1" title="@Path">
+                <i class="bi bi-link-45deg me-1"></i>@Path
+            </div>
+        }
+        @if (detail is not null && !string.IsNullOrEmpty(detail.PostTitle))
+        {
+            <div class="fw-semibold mt-1">@detail.PostTitle</div>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <input type="date" class="form-control form-control-sm" style="width:auto"
+               value="@dateFrom.ToString("yyyy-MM-dd")" @onchange="OnFromChanged" />
+        <span class="text-muted">to</span>
+        <input type="date" class="form-control form-control-sm" style="width:auto"
+               value="@dateTo.AddDays(-1).ToString("yyyy-MM-dd")" @onchange="OnToChanged" />
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+    </div>
+}
+else if (loading)
+{
+    <p class="text-muted">Loading page analytics…</p>
+}
+else if (detail is not null)
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted small">Pageviews</div>
+                    <div class="fs-3 fw-bold">@detail.Pageviews.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted small">Unique visitors</div>
+                    <div class="fs-3 fw-bold">@detail.UniqueVisitors.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted small">Member pageviews</div>
+                    <div class="fs-3 fw-bold">@detail.MemberPageviews.ToString("N0")</div>
+                    <div class="text-muted small">
+                        @(detail.Pageviews > 0 ? $"{(double)detail.MemberPageviews * 100 / detail.Pageviews:0.0}% of total" : "—")
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted small">Anonymous pageviews</div>
+                    <div class="fs-3 fw-bold">@detail.AnonymousPageviews.ToString("N0")</div>
+                    <div class="text-muted small">
+                        @(detail.Pageviews > 0 ? $"{(double)detail.AnonymousPageviews * 100 / detail.Pageviews:0.0}% of total" : "—")
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <strong>@((dateTo - dateFrom).TotalDays <= 7 ? "Hourly Traffic" : "Daily Traffic")</strong>
+            <small class="text-muted ms-2">Member vs anonymous overlay</small>
+        </div>
+        <div class="card-body" style="height:320px">
+            <canvas id="chartPageTraffic"></canvas>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header"><strong>Top Referrers</strong></div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Referrer</th>
+                                    <th class="text-end">Visits</th>
+                                    <th class="text-end">Visitors</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (detail.Referrers.Count == 0)
+                                {
+                                    <tr><td colspan="3" class="text-muted text-center py-3">No referrers in this period.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (var r in detail.Referrers)
+                                    {
+                                        <tr>
+                                            <td class="text-truncate" style="max-width:400px" title="@r.Referrer">@r.Referrer</td>
+                                            <td class="text-end">@r.Visits.ToString("N0")</td>
+                                            <td class="text-end">@r.UniqueVisitors.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header"><strong>Devices</strong></div>
+                <div class="card-body" style="height:280px">
+                    @if (detail.Devices.Count == 0)
+                    {
+                        <p class="text-muted text-center mt-4">No device data.</p>
+                    }
+                    else
+                    {
+                        <canvas id="chartPageDevices"></canvas>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "path")]
+    public string? Path { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? FromParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")]
+    public string? ToParam { get; set; }
+
+    private DateTime dateFrom;
+    private DateTime dateTo;
+    private bool loading = true;
+    private string? errorMessage;
+    private PageDetailResult? detail;
+    private bool chartsInitialized;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Default to last 30 days; allow override from query string
+        dateTo = DateTime.UtcNow.Date.AddDays(1);
+        dateFrom = dateTo.AddDays(-30);
+
+        if (DateTime.TryParse(FromParam, out var f))
+        {
+            dateFrom = DateTime.SpecifyKind(f.Date, DateTimeKind.Utc);
+        }
+        if (DateTime.TryParse(ToParam, out var t))
+        {
+            // 'to' is inclusive end day; convert to exclusive next-day boundary
+            dateTo = DateTime.SpecifyKind(t.Date.AddDays(1), DateTimeKind.Utc);
+        }
+
+        await LoadDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!loading && detail is not null)
+        {
+            try
+            {
+                await RenderChartsAsync();
+                chartsInitialized = true;
+            }
+            catch (Exception)
+            {
+                // Non-fatal
+            }
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Path))
+        {
+            errorMessage = "No page path specified.";
+            loading = false;
+            return;
+        }
+
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            detail = await AnalyticsService.GetPageDetailAsync(Path, dateFrom, dateTo);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load page analytics: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private async Task OnFromChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            dateFrom = DateTime.SpecifyKind(d.Date, DateTimeKind.Utc);
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task OnToChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            dateTo = DateTime.SpecifyKind(d.Date.AddDays(1), DateTimeKind.Utc);
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        if (detail is null) return;
+
+        // Traffic time-series with member vs anonymous overlay
+        var labels = detail.TimeSeries.Select(t => t.Label).ToArray();
+        var pageviews = detail.TimeSeries.Select(t => (double)t.Pageviews).ToArray();
+        var members = detail.TimeSeries.Select(t => (double)t.MemberPageviews).ToArray();
+        var anonymous = detail.TimeSeries.Select(t => (double)(t.Pageviews - t.MemberPageviews)).ToArray();
+
+        var datasets = new object[]
+        {
+            new {
+                label = "Pageviews",
+                data = pageviews,
+                borderColor = "rgba(99,179,237,1)",
+                backgroundColor = "rgba(99,179,237,0.1)",
+                fill = true,
+                tension = 0.3
+            },
+            new {
+                label = "Member pageviews",
+                data = members,
+                borderColor = "rgba(237,137,54,1)",
+                backgroundColor = "rgba(237,137,54,0.1)",
+                fill = false,
+                tension = 0.3
+            },
+            new {
+                label = "Anonymous pageviews",
+                data = anonymous,
+                borderColor = "rgba(160,174,192,1)",
+                backgroundColor = "rgba(160,174,192,0.1)",
+                fill = false,
+                tension = 0.3
+            }
+        };
+        await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+            "chartPageTraffic", "line", labels, datasets, (object?)null);
+
+        // Devices doughnut
+        if (detail.Devices.Count > 0)
+        {
+            var dLabels = detail.Devices.Select(d => d.Device).ToArray();
+            var dDatasets = new[]
+            {
+                new {
+                    data = detail.Devices.Select(d => d.Sessions).ToArray(),
+                    backgroundColor = new[] { "#63b3ed", "#48bb78", "#ecc94b", "#fc8181", "#b794f4", "#f687b3" }
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartPageDevices", "doughnut", dLabels, dDatasets, (object?)null);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (chartsInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("analyticsCharts.destroyAll");
+            }
+            catch
+            {
+                // Ignore — circuit may already be torn down
+            }
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

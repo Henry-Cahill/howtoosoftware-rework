@@ -1,0 +1,295 @@
+               ================================================================================
+  HOWTOSOFTWARE PUBLIC WEB UI — ENHANCEMENT PLAN
+  Generated: 2026-04-19
+  Scope: Every public-facing page — UX, accessibility, engagement, polish
+================================================================================
+
+  LEGEND
+    [P0] Must-have — core functionality gap or broken UX
+    [P1] Should-have — significant improvement, schedule this cycle
+    [P2] Nice-to-have — polish, convenience, defer if needed
+    Priority order within each section: P0 → P1 → P2
+
+  NAMING
+    Each item: {Section}.{Number}  (e.g. LAY.1, POST.4, SRCH.2)
+
+
+================================================================================
+  1. LAYOUT & GLOBAL (_Layout.cshtml, screen.css, main.js)
+================================================================================
+
+[ ] LAY.1   [P0] ADD DARK / LIGHT MODE TOGGLE
+     Currently: Dark mode is hardcoded (class="dark-mode" on <html>). CSS
+     supports both themes but there is no toggle in the UI.
+     Enhance: Add a sun/moon icon button to .gh-head-actions. On click,
+     toggle data-theme attribute on <html> and persist choice in
+     localStorage. Respect prefers-color-scheme on first visit.
+
+[ ] LAY.2   [P0] WIRE UP READING PROGRESS BAR
+     Currently: .reading-progress element exists in the layout and CSS
+     styles are defined, but no scroll event handler activates it. main.js
+     is almost entirely a debug/diagnostics tool.
+     Enhance: Add scroll listener that calculates read percentage of
+     .gh-content on article pages and sets width on .reading-progress-fill.
+     Add .visible class when user begins scrolling. Hide on non-article
+     pages.
+
+[ ] LAY.3   [P0] WIRE UP BACK-TO-TOP BUTTON
+     Currently: #back-to-top button exists in markup and CSS has show/hide
+     transitions, but no JS activates it.
+     Enhance: Show button after scrolling past 500px. Smooth-scroll to top
+     on click. Add .visible class toggle.
+
+[ ] LAY.4   [P0] EMPTY FOOTER "CONNECT" COLUMN
+     Currently: The third footer-section has <h4>Connect</h4> with no
+     content below it. The 4th column is completely absent.
+     Enhance: Populate Connect with social media links pulled from site
+     settings (twitter, facebook). Remove or repurpose the empty 4th column
+     slot so the grid doesn't show a gap.
+
+[ ] LAY.5   [P1] ADD SKIP-TO-CONTENT ACCESSIBILITY LINK
+     Currently: No skip-navigation link for keyboard/screen-reader users.
+     Enhance: Add <a href="#site-main" class="sr-only focus:not-sr-only">
+     Skip to content</a> as the first child of <body>. Style to appear on
+     focus for keyboard users.
+
+[ ] LAY.6   [P1] ADD KEYBOARD SHORTCUT HINT ON SEARCH BUTTON
+     Currently: Ctrl/Cmd+K opens search but this is not advertised.
+     Enhance: Add a subtle <kbd>⌘K</kbd> badge next to or inside the
+     search button. Show Ctrl on Windows, ⌘ on Mac via JS UA detection.
+
+[ ] LAY.7   [P2] ADD PREFERS-REDUCED-MOTION AWARENESS TO JS
+     Currently: CSS has prefers-reduced-motion but JS animations (card
+     hover translateY, modal slideDown) are not gated.
+     Enhance: Check matchMedia('(prefers-reduced-motion: reduce)') before
+     applying JS-driven transitions.
+
+
+================================================================================
+  2. HOMEPAGE (Index.cshtml)
+================================================================================
+
+[ ] HOME.1  [P1] MAKE HERO SECTION MORE ENGAGING
+     Currently: Static site title + description in a faint gradient box.
+     Enhance: Show a featured/pinned post banner, or a newsletter signup
+     CTA, or a rotating highlight of latest posts. The current hero adds
+     visual height but no actionable content.
+
+[ ] HOME.2  [P1] ADD NEWSLETTER CTA ON HOMEPAGE
+     Currently: No subscribe prompt on the homepage at all.
+     Enhance: Add an inline CTA section (email input + subscribe button)
+     between the hero and the post feed, or as a banner at the bottom of
+     the feed. The .footer-cta CSS class already exists but is unused.
+
+[ ] HOME.3  [P2] ADD "LOAD MORE" OPTION
+     Currently: Traditional Previous/Next pagination only.
+     Enhance: Add a "Load More" button that appends the next page of posts
+     via AJAX without a full page reload. Keep traditional pagination as
+     noscript fallback.
+
+
+================================================================================
+  3. POST / ARTICLE PAGE (Post.cshtml)
+================================================================================
+
+[ ] POST.1  [P0] ADD SOCIAL SHARE BUTTONS
+     Currently: No share functionality on posts at all.
+     Enhance: Add a share toolbar below the article title or after the
+     article body with buttons for: Twitter/X, LinkedIn, copy link, email.
+     Use native Web Share API on mobile as primary, fallback to individual
+     links. No third-party scripts — pure URL-based sharing.
+
+[ ] POST.2  [P1] ADD TABLE OF CONTENTS FOR LONG POSTS
+     Currently: No auto-generated TOC. CSS already has scroll-margin-top
+     on headings for anchor linking.
+     Enhance: Auto-generate a floating or collapsible TOC sidebar from
+     h2/h3 headings in .gh-content. Highlight the current section on
+     scroll. Collapse on mobile to a dropdown. Only show when the post
+     has 3+ headings.
+
+[ ] POST.3  [P1] ADD ANCHOR LINKS ON ARTICLE HEADINGS
+     Currently: Headings have scroll-margin-top but no clickable anchor or
+     id attribute. Readers cannot link to specific sections.
+     Enhance: Auto-generate slug-based id attributes on h2/h3 in rendered
+     content. Add a hover-visible # link icon before each heading.
+
+[ ] POST.4  [P1] ADD NEWSLETTER CTA BETWEEN AUTHOR BOX AND COMMENTS
+     Currently: Post ends with author box → webmentions → comments. No
+     inline subscribe prompt for engaged readers.
+     Enhance: Insert a subscribe CTA section using the .footer-cta pattern
+     after the author card and before the comments section. Show site
+     title, "Get the latest posts" copy, and email/subscribe button.
+
+[ ] POST.5  [P1] ADD COMMENT LOADING STATE
+     Currently: Comments section shows "Comments (0)" while fetching from
+     API, then flickers to actual count. No loading indicator.
+     Enhance: Show a skeleton loader or spinner while comments.js fetches.
+     Set initial count text to "..." or hide count until loaded.
+
+[ ] POST.6  [P2] ADD COMMENT FORMATTING HELP
+     Currently: Comment textarea is plain text with no formatting hints.
+     Enhance: Add a small "Basic formatting supported" note below the
+     textarea. Optionally add a preview toggle button that renders the
+     comment HTML before submission.
+
+[ ] POST.7  [P2] ADD ESTIMATED POSITION INDICATOR
+     Currently: Thin progress bar at top of viewport.
+     Enhance: Add a "X min left" countdown near the reading time in the
+     byline that updates as the user scrolls through the article.
+
+
+================================================================================
+  4. POST CARDS (_PostCard.cshtml)
+================================================================================
+
+[ ] CARD.1  [P1] ADD AUTHOR AVATAR TO POST CARDS
+     Currently: Card footer shows date and reading time only. No author
+     info on the card.
+     Enhance: Add a small (24x24) author avatar and name to the
+     .post-card-meta footer. Requires passing author data through
+     PostCardViewModel.
+
+[ ] CARD.2  [P2] ADD BLUR-UP IMAGE PLACEHOLDER
+     Currently: Images use loading="lazy" but pop in abruptly with no
+     placeholder.
+     Enhance: Add a low-res blurred placeholder or solid color background
+     that transitions to the full image on load. Use a CSS aspect-ratio
+     box to prevent layout shift.
+
+[ ] CARD.3  [P2] DISABLE HOVER TRANSFORM ON TOUCH DEVICES
+     Currently: Cards have translateY(-6px) on :hover which can get
+     "stuck" on mobile browsers after tap.
+     Enhance: Use @media (hover: hover) to gate the transform so touch-
+     only devices are unaffected.
+
+
+================================================================================
+  5. SEARCH (_SearchModal.cshtml, search.js)
+================================================================================
+
+[ ] SRCH.1  [P1] HIGHLIGHT QUERY TERMS IN RESULTS
+     Currently: Search results render plain text titles and excerpts.
+     Enhance: Wrap matched query substrings in <mark> tags in the title
+     and excerpt for visual feedback.
+
+[ ] SRCH.2  [P2] ADD SEARCH RESULT KEYBOARD NAVIGATION
+     Currently: Results are clickable but not keyboard-navigable.
+     Enhance: Arrow up/down to highlight results, Enter to navigate to
+     the highlighted result. Add aria-activedescendant for accessibility.
+
+[ ] SRCH.3  [P2] SHOW RECENT SEARCHES
+     Currently: Opening search shows an empty modal every time.
+     Enhance: Store last 5 searches in localStorage. Show them as quick
+     suggestions when the modal opens with an empty input.
+
+
+================================================================================
+  6. PAGINATION (_Pagination.cshtml)
+================================================================================
+
+[ ] PAG.1   [P1] ADD PAGE NUMBER LINKS
+     Currently: Only Previous/Next arrows with "Page X of Y" text. Users
+     cannot jump to a specific page.
+     Enhance: Render clickable page numbers (1, 2, 3 ... N) with
+     ellipsis truncation for large page counts. Keep Previous/Next as
+     well.
+
+
+================================================================================
+  7. TAG & AUTHOR PAGES (Tag.cshtml, Author.cshtml)
+================================================================================
+
+[ ] TAG.1   [P1] ALWAYS SHOW POST COUNT ON TAG PAGE
+     Currently: Post count only appears as fallback text when the tag has
+     no description ("A collection of 12 posts").
+     Enhance: Always show a badge like "12 posts" below the tag name,
+     regardless of whether a description exists.
+
+[ ] AUTH.1  [P1] UPDATE SOCIAL LINKS TO X BRANDING
+     Currently: Author page links to twitter.com and uses the Twitter bird
+     SVG icon.
+     Enhance: Update URL to x.com and replace the bird SVG with the X
+     logo. Keep backward compatibility for authors with twitter handles.
+
+[ ] AUTH.2  [P2] ADD POST COUNT ON AUTHOR PAGE
+     Currently: Author profile card shows name, bio, location, and social
+     links but no post count.
+     Enhance: Add "X posts" badge similar to the tag page pattern.
+
+
+================================================================================
+  8. AUTH PAGES (Signin.cshtml, Signup.cshtml, Account.cshtml)
+================================================================================
+
+[ ] FORM.1  [P1] EXTRACT INLINE STYLES TO CSS CLASSES
+     Currently: All three auth pages use extensive inline style=""
+     attributes for every element (inputs, labels, buttons, messages).
+     Enhance: Create a .form-page, .form-input, .form-label, .form-btn,
+     .form-success, .form-error class set in screen.css. Replace all
+     inline styles in Signin, Signup, and Account pages with these
+     classes. This improves consistency, maintainability, and theming.
+
+[ ] FORM.2  [P1] ADD LOADING STATE TO FORM SUBMISSIONS
+     Currently: Clicking "Send sign-in link" or "Subscribe" submits with
+     no visual feedback. User can double-click.
+     Enhance: Disable button and show a spinner on submit. Re-enable on
+     completion or error. Prevent double submission.
+
+[ ] FORM.3  [P2] ADD PASSWORD VISIBILITY TOGGLE PATTERN
+     Currently: N/A (magic link auth has no password fields).
+     Future: If password auth is added, include a show/hide toggle on
+     password inputs.
+
+
+================================================================================
+  9. PRIVACY & ERROR PAGES (Privacy.cshtml, Error.cshtml)
+================================================================================
+
+[ ] PRIV.1  [P0] REPLACE PLACEHOLDER PRIVACY PAGE
+     Currently: Privacy.cshtml reads "Use this page to detail your site's
+     privacy policy." — this is a development placeholder shipped to
+     production.
+     Enhance: Write actual privacy policy content covering: data
+     collected (analytics, cookies, member email), third-party services
+     (Mailgun, Stripe), data retention, and contact information. Or load
+     from a CMS page.
+
+[ ] ERR.1   [P2] ADD SEARCH ON 404 PAGE
+     Currently: 404 shows suggested posts but no search input.
+     Enhance: Add an inline search box on the 404 page so users can
+     immediately search for what they were looking for.
+
+
+================================================================================
+  10. PERFORMANCE & SEO
+================================================================================
+
+[ ] PERF.1  [P1] ADD PRECONNECT HINTS FOR EXTERNAL ORIGINS
+     Currently: No <link rel="preconnect"> tags in <head>.
+     Enhance: Add preconnect for any external CDNs or API origins used
+     (Google Fonts if added, analytics endpoints, image CDN).
+
+[ ] SEO.1   [P1] ADD JSON-LD TO HOMEPAGE
+     Currently: JSON-LD structured data only exists on individual post
+     pages. Homepage and archive pages have none.
+     Enhance: Add WebSite schema with SearchAction on the homepage.
+     Add CollectionPage schema on tag/author archive pages.
+
+[ ] SEO.2   [P2] ADD BREADCRUMB NAVIGATION
+     Currently: No breadcrumbs on any page.
+     Enhance: Add breadcrumb trail on post pages (Home > Tag > Post)
+     and archive pages (Home > Tag). Include BreadcrumbList JSON-LD.
+
+
+================================================================================
+  TOTALS
+================================================================================
+
+  P0:  6 items  (LAY.1, LAY.2, LAY.3, LAY.4, POST.1, PRIV.1)
+  P1: 18 items  (LAY.5, LAY.6, HOME.1, HOME.2, POST.2, POST.3, POST.4,
+                  POST.5, CARD.1, SRCH.1, PAG.1, TAG.1, AUTH.1, FORM.1,
+                  FORM.2, PERF.1, SEO.1)
+  P2: 12 items  (LAY.7, HOME.3, POST.6, POST.7, CARD.2, CARD.3, SRCH.2,
+                  SRCH.3, AUTH.2, FORM.3, ERR.1, SEO.2)
+  ─────────────
+  Total: 36 items

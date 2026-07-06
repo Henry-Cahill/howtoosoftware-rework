@@ -1,0 +1,38 @@
+@using HowToSoftware.Core.Interfaces
+@model ContentAccessLevel
+
+@* ── Content gate: shown instead of post body when the visitor lacks access ── *@
+<section class="gh-content gh-canvas">
+    <div class="content-gate" style="text-align: center; padding: 3rem 1.5rem; margin: 2rem 0; border: 1px solid var(--ghost-accent-color, #4353ff); border-radius: 8px; background: var(--color-darker-gray, rgba(0,0,0,0.04));">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="48" height="48" style="opacity: 0.6; margin-bottom: 1rem;">
+            <path d="M12 2C9.24 2 7 4.24 7 7v3H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-2V7c0-2.76-2.24-5-5-5Zm0 2c1.65 0 3 1.35 3 3v3H9V7c0-1.65 1.35-3 3-3Zm0 10c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2Z"/>
+        </svg>
+
+        @if (Model == ContentAccessLevel.RequiresMember)
+        {
+            <h3 style="margin: 0 0 0.5rem;">This post is for members only</h3>
+            <p style="margin: 0 0 1.5rem; opacity: 0.75;">Sign in or create a free account to read the full post.</p>
+            <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                <a href="/signup/" class="content-gate-btn" style="display: inline-block; padding: 0.75rem 2rem; background: var(--ghost-accent-color, #4353ff); color: #fff; border-radius: 4px; text-decoration: none; font-weight: 600;">Sign up free</a>
+                <a href="/signin/" class="content-gate-btn-secondary" style="display: inline-block; padding: 0.75rem 2rem; border: 1px solid var(--ghost-accent-color, #4353ff); color: var(--ghost-accent-color, #4353ff); border-radius: 4px; text-decoration: none; font-weight: 600;">Sign in</a>
+            </div>
+        }
+        else if (Model == ContentAccessLevel.RequiresPaid)
+        {
+            <h3 style="margin: 0 0 0.5rem;">This post is for paid subscribers only</h3>
+            <p style="margin: 0 0 1.5rem; opacity: 0.75;">Upgrade your account to access this content.</p>
+            <a href="/account/" class="content-gate-btn" style="display: inline-block; padding: 0.75rem 2rem; background: var(--ghost-accent-color, #4353ff); color: #fff; border-radius: 4px; text-decoration: none; font-weight: 600;">Upgrade</a>
+        }
+        else if (Model == ContentAccessLevel.RequiresTier)
+        {
+            <h3 style="margin: 0 0 0.5rem;">This post is for premium members only</h3>
+            <p style="margin: 0 0 1.5rem; opacity: 0.75;">This content requires a specific membership tier.</p>
+            <a href="/account/" class="content-gate-btn" style="display: inline-block; padding: 0.75rem 2rem; background: var(--ghost-accent-color, #4353ff); color: #fff; border-radius: 4px; text-decoration: none; font-weight: 600;">Upgrade</a>
+        }
+    </div>
+</section>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

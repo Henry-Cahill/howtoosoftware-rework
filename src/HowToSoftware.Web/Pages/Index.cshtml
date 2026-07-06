@@ -1,0 +1,64 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+}
+
+@* ── Hero Section ── *@
+<section class="home-hero">
+    <div class="home-hero-inner">
+        <h1 class="home-hero-title">@Model.SiteTitle</h1>
+        @if (!string.IsNullOrEmpty(Model.SiteDescription))
+        {
+            <p class="home-hero-description">@Model.SiteDescription</p>
+        }
+    </div>
+</section>
+
+@* ── Pages Section ── *@
+@if (Model.PageCards.Count > 0)
+{
+<section class="site-pages outer">
+<div class="inner">
+    <h2 class="site-pages-title">Pages</h2>
+    <div class="post-feed">
+        @foreach (var card in Model.PageCards)
+        {
+            <partial name="_PostCard" model="card" />
+        }
+    </div>
+</div>
+</section>
+}
+
+@* ── Post Feed ── *@
+<main id="site-main" class="site-main outer">
+<div class="inner posts">
+
+    <div class="post-feed">
+        @foreach (var card in Model.PostCards)
+        {
+            <partial name="_PostCard" model="card" />
+        }
+    </div>
+
+    @* ── Pagination ── *@
+    @{
+        var indexPagination = new HowToSoftware.Web.Models.PaginationViewModel
+        {
+            CurrentPage = Model.CurrentPage,
+            TotalPages = Model.TotalPages,
+            HasPreviousPage = Model.HasPreviousPage,
+            HasNextPage = Model.HasNextPage,
+            BaseUrl = "/"
+        };
+    }
+    <partial name="_Pagination" model="indexPagination" />
+
+</div>
+</main>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

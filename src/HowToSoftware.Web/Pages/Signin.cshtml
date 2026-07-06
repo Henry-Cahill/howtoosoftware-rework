@@ -1,0 +1,63 @@
+@page "/signin"
+@model HowToSoftware.Web.Pages.SigninModel
+@{
+    ViewData["Title"] = "Sign in";
+    ViewData["BodyClass"] = "signin-page";
+}
+
+<main class="site-main">
+    <article class="gh-article">
+        <div class="gh-article-header gh-canvas" style="text-align:center;padding:6rem 0 3rem;">
+            <h1 class="gh-article-title">Sign in to @Model.SiteTitle</h1>
+            <p class="gh-article-excerpt" style="margin-top:1rem;font-size:1.8rem;color:var(--color-text-secondary);">
+                Enter your email and we'll send you a sign-in link.
+            </p>
+        </div>
+
+        <div class="gh-content gh-canvas" style="max-width:440px;margin:0 auto;padding-bottom:6rem;">
+            @if (Model.SuccessMessage is not null)
+            {
+                <div style="background:var(--color-primary);color:white;padding:1.6rem 2rem;border-radius:8px;text-align:center;margin-bottom:2rem;font-size:1.5rem;">
+                    @Model.SuccessMessage
+                </div>
+            }
+            else
+            {
+                @if (Model.ErrorMessage is not null)
+                {
+                    <div style="background:#dc3545;color:white;padding:1.2rem 2rem;border-radius:8px;text-align:center;margin-bottom:2rem;font-size:1.4rem;">
+                        @Model.ErrorMessage
+                    </div>
+                }
+
+                <form method="post" id="signin-form">
+                    @Html.AntiForgeryToken()
+
+                    <div style="margin-bottom:1.6rem;">
+                        <label for="email" style="display:block;font-size:1.3rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);margin-bottom:0.6rem;">
+                            Email address
+                        </label>
+                        <input type="email" id="email" name="Email" value="@Model.Input.Email"
+                               required maxlength="191" placeholder="you@example.com" autofocus
+                               style="width:100%;padding:1rem 1.4rem;border:1px solid var(--color-border);border-radius:6px;font-size:1.5rem;background:var(--color-bg);color:var(--color-text);" />
+                    </div>
+
+                    <button type="submit"
+                            style="width:100%;padding:1.2rem;background:var(--ghost-accent-color);color:white;border:none;border-radius:6px;font-size:1.6rem;font-weight:600;cursor:pointer;transition:opacity 0.2s;">
+                        Send sign-in link
+                    </button>
+                </form>
+
+                <p style="text-align:center;margin-top:2rem;font-size:1.4rem;color:var(--color-text-secondary);">
+                    Don't have an account?
+                    <a href="/signup/" style="color:var(--ghost-accent-color);font-weight:600;">Subscribe</a>
+                </p>
+            }
+        </div>
+    </article>
+</main>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

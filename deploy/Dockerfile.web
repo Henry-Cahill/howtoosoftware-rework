@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: Restore ──────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+WORKDIR /src
+
+# Copy solution-level build props (TargetFramework, central package versions)
+COPY Directory.Build.props ./
+COPY Directory.Packages.props ./
+
+# Copy project files first for layer caching
+COPY src/HowToSoftware.Core/HowToSoftware.Core.csproj             src/HowToSoftware.Core/
+COPY src/HowToSoftware.Infrastructure/HowToSoftware.Infrastructure.csproj src/HowToSoftware.Infrastructure/
+COPY src/HowToSoftware.Web/HowToSoftware.Web.csproj               src/HowToSoftware.Web/
+
+RUN dotnet restore src/HowToSoftware.Web/HowToSoftware.Web.csproj
+
+# ── Stage 2: Publish ──────────────────────────────────────────────
+FROM restore AS publish
+COPY src/HowToSoftware.Core/       src/HowToSoftware.Core/
+COPY src/HowToSoftware.Infrastructure/ src/HowToSoftware.Infrastructure/
+COPY src/HowToSoftware.Web/        src/HowToSoftware.Web/
+
+RUN dotnet publish src/HowToSoftware.Web/HowToSoftware.Web.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore
+
+# ── Stage 3: Runtime ─────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+EXPOSE 5000
+
+# Install curl for Docker HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Run as non-root
+RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
+RUN mkdir -p /app/wwwroot/content/images && chown -R appuser:appgroup /app/wwwroot/content
+USER appuser
+
+COPY --from=publish /app/publish .
+
+# GeoIP database (DB-IP IP-to-Country Lite, MaxMind MMDB format).
+# Path is referenced via the GeoIp__DatabasePath env var in docker-compose.
+COPY deploy/geoip/dbip-country-lite.mmdb /app/geoip/dbip-country-lite.mmdb
+
+ENTRYPOINT ["dotnet", "HowToSoftware.Web.dll"]

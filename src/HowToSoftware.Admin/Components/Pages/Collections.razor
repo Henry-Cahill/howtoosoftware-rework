@@ -1,0 +1,131 @@
+@page "/collections"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ICollectionService CollectionService
+@rendermode InteractiveServer
+
+<PageTitle>Collections — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Collections</h1>
+    <a href="collections/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New collection</a>
+</div>
+
+@if (collections is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (collections.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-collection display-4 d-block mb-2"></i>
+            No collections yet. Group your posts into automatic or manual collections.
+        </div>
+    </div>
+}
+else
+{
+    <div class="row mb-3 align-items-center g-3">
+        <div class="col-auto">
+            <select class="form-select form-select-sm" @bind="typeFilter" @bind:after="ApplyFilter">
+                <option value="">All types</option>
+                <option value="manual">Manual</option>
+                <option value="automatic">Automatic</option>
+            </select>
+        </div>
+        <div class="col">
+            <div class="small text-muted">Collections now show their cover image when one is set.</div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        @foreach (var col in filtered)
+        {
+            <div class="col-12 col-xl-6">
+                <div class="card h-100 shadow-sm collection-card">
+                    <div class="collection-card-media">
+                        @if (!string.IsNullOrEmpty(col.FeatureImage))
+                        {
+                            <img src="@col.FeatureImage" alt="" class="collection-card-image" loading="lazy" />
+                        }
+                        else
+                        {
+                            <div class="collection-card-placeholder">
+                                <i class="bi bi-collection"></i>
+                            </div>
+                        }
+                    </div>
+                    <div class="card-body d-flex flex-column gap-3">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                                    <h5 class="card-title mb-0">@col.Title</h5>
+                                    @if (col.Type == "automatic")
+                                    {
+                                        <span class="badge bg-info"><i class="bi bi-lightning-fill me-1"></i>Automatic</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary"><i class="bi bi-hand-index-fill me-1"></i>Manual</span>
+                                    }
+                                </div>
+                                <div class="small text-muted font-monospace mb-2">/@col.Slug/</div>
+                                @if (!string.IsNullOrEmpty(col.Description))
+                                {
+                                    <p class="text-muted mb-0 collection-card-description">@col.Description</p>
+                                }
+                                else
+                                {
+                                    <p class="text-muted mb-0 collection-card-description">No description yet.</p>
+                                }
+                            </div>
+                            <a href="collections/@col.Id/edit" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </a>
+                        </div>
+
+                        <div class="collection-card-meta small text-muted">
+                            <span><i class="bi bi-file-earmark-text me-1"></i>@(postCounts.GetValueOrDefault(col.Id, 0)) posts</span>
+                            <span><i class="bi bi-calendar3 me-1"></i>@col.CreatedAt.ToString("yyyy-MM-dd")</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Collection>? collections;
+    private List<Collection> filtered = [];
+    private Dictionary<string, int> postCounts = new();
+    private string typeFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        collections = await CollectionService.GetAllAsync();
+
+        foreach (var col in collections)
+        {
+            postCounts[col.Id] = await CollectionService.GetPostCountAsync(col.Id);
+        }
+
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (collections is null) return;
+
+        filtered = string.IsNullOrEmpty(typeFilter)
+            ? collections
+            : collections.Where(c => c.Type == typeFilter).ToList();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

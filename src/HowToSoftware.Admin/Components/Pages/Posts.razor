@@ -1,0 +1,477 @@
+@page "/posts"
+@using System.Security.Claims
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.AspNetCore.Components
+@attribute [Authorize(Roles = "Owner,Administrator,Editor,Author,Contributor")]
+@inject IPostRepository PostRepository
+@inject IContentService ContentService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Posts — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Posts</h1>
+    <a href="posts/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New post</a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Status</label>
+                <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                    <option value="scheduled">Scheduled</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Author</label>
+                <select class="form-select form-select-sm" @bind="authorFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All authors</option>
+                    @foreach (var author in authors)
+                    {
+                        <option value="@author.Id">@author.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Tag</label>
+                <select class="form-select form-select-sm" @bind="tagFilter" @bind:after="ApplyFiltersAsync">
+                    <option value="">All tags</option>
+                    @foreach (var tag in tags)
+                    {
+                        <option value="@tag.Id">@tag.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by title…"
+                       @bind="searchQuery" @bind:after="ApplyFiltersAsync" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions -->
+@if (selectedIds.Count > 0)
+{
+    <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+        <strong>@selectedIds.Count selected</strong>
+        <button class="btn btn-sm btn-outline-warning" @onclick="BulkFeatureAsync">
+            <i class="bi bi-star-fill me-1"></i>Feature
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="BulkUnfeatureAsync">
+            <i class="bi bi-star me-1"></i>Unfeature
+        </button>
+        <button class="btn btn-sm btn-outline-success" @onclick="BulkPublishAsync">
+            <i class="bi bi-check-circle-fill me-1"></i>Publish
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="BulkMoveToDraftAsync">
+            <i class="bi bi-file-earmark me-1"></i>Move to Draft
+        </button>
+        <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+            <i class="bi bi-trash-fill me-1"></i>Delete
+        </button>
+        <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> post(s)? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Posts Table -->
+@if (result is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (result.Items.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-file-earmark-text display-4 d-block mb-2"></i>
+            No posts found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th style="width: 56px"></th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("title")'>
+                            Title
+                            @if (sortColumn == "title") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("status")'>
+                            Status
+                            @if (sortColumn == "status") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Author</th>
+                        <th>Tags</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("date")'>
+                            Date
+                            @if (sortColumn == "date") { <i class="bi @SortIcon"></i> }
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var post in result.Items)
+                    {
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(post.Id)"
+                                       @onchange="() => ToggleSelection(post.Id)" />
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(post.FeatureImage))
+                                {
+                                    <img src="@post.FeatureImage" alt="" class="post-thumbnail" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <div class="post-thumbnail-placeholder">
+                                        <i class="bi bi-image"></i>
+                                    </div>
+                                }
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    @if (post.Featured)
+                                    {
+                                        <i class="bi bi-star-fill text-warning" title="Featured"></i>
+                                    }
+                                    <a href="posts/@post.Id/edit" class="fw-medium text-decoration-none text-body">
+                                        @post.Title
+                                    </a>
+                                    <a href="posts/@post.Id/edit" class="btn btn-sm btn-link text-muted p-0 ms-auto row-action-btn"
+                                       title="Edit" @onclick:stopPropagation="true">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </a>
+                                    <button class="btn btn-sm btn-link text-muted p-0 row-action-btn"
+                                            title="Duplicate" @onclick="() => DuplicatePostAsync(post.Id)"
+                                            @onclick:stopPropagation="true">
+                                        <i class="bi bi-copy"></i>
+                                    </button>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge @StatusBadgeClass(post.Status)">@post.Status</span>
+                            </td>
+                            <td class="text-muted small">
+                                @string.Join(", ", post.PostsAuthors.Select(pa => pa.Author.Name))
+                            </td>
+                            <td class="text-muted small">
+                                @if (post.PostsTags.Any())
+                                {
+                                    @string.Join(", ", post.PostsTags.Take(3).Select(pt => pt.Tag.Name))
+                                    @if (post.PostsTags.Count > 3)
+                                    {
+                                        <span> +@(post.PostsTags.Count - 3)</span>
+                                    }
+                                }
+                            </td>
+                            <td class="text-muted small text-nowrap">
+                                @FormatDate(post.PublishedAt ?? post.UpdatedAt ?? post.CreatedAt)
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    @if (result.TotalPages > 1)
+    {
+        <nav class="mt-3 d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                @((result.Page - 1) * result.PageSize + 1)–@(Math.Min(result.Page * result.PageSize, result.TotalCount))
+                of @result.TotalCount posts
+            </small>
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item @(result.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => GoToPageAsync(result.Page - 1)" disabled="@(!result.HasPreviousPage)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                </li>
+                @for (var i = PaginationStart; i <= PaginationEnd; i++)
+                {
+                    var pageNum = i;
+                    <li class="page-item @(pageNum == result.Page ? "active" : "")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(result.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => GoToPageAsync(result.Page + 1)" disabled="@(!result.HasNextPage)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
+    private PagedResult<Post>? result;
+    private List<User> authors = [];
+    private List<Tag> tags = [];
+
+    // Filters
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? InitialStatus { get; set; }
+
+    private string statusFilter = "";
+    private string authorFilter = "";
+    private string tagFilter = "";
+    private string searchQuery = "";
+
+    // Sorting
+    private string sortColumn = "date";
+    private bool sortAscending;
+
+    // Pagination
+    private int currentPage = 1;
+    private const int PageSize = 25;
+
+    // Selection
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+
+    private bool allSelected => result is not null && result.Items.Count > 0
+        && result.Items.All(p => selectedIds.Contains(p.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    private int PaginationStart => Math.Max(1, (result?.Page ?? 1) - 2);
+    private int PaginationEnd => Math.Min(result?.TotalPages ?? 1, PaginationStart + 4);
+
+    [Inject] private ITagRepository TagRepository { get; set; } = default!;
+    [Inject] private IUserRepository UserRepository { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(InitialStatus))
+            statusFilter = InitialStatus;
+
+        var allTags = await TagRepository.GetAllAsync();
+        tags = [.. allTags.OrderBy(t => t.Name)];
+
+        var allUsers = await UserRepository.GetAllAsync();
+        authors = [.. allUsers.OrderBy(u => u.Name)];
+
+        await LoadPostsAsync();
+    }
+
+    private async Task LoadPostsAsync()
+    {
+        // Get all posts with type "post" and optional status filter
+        result = await PostRepository.GetAllAsync(
+            string.IsNullOrEmpty(statusFilter) ? null : statusFilter,
+            "post",
+            currentPage,
+            PageSize);
+
+        // Apply client-side filters for author, tag, search
+        if (result is not null)
+        {
+            var filtered = result.Items.AsEnumerable();
+
+            if (!string.IsNullOrEmpty(authorFilter))
+                filtered = filtered.Where(p => p.PostsAuthors.Any(pa => pa.AuthorId == authorFilter));
+
+            if (!string.IsNullOrEmpty(tagFilter))
+                filtered = filtered.Where(p => p.PostsTags.Any(pt => pt.TagId == tagFilter));
+
+            if (!string.IsNullOrEmpty(searchQuery))
+                filtered = filtered.Where(p => p.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+            // Sorting
+            filtered = sortColumn switch
+            {
+                "title" => sortAscending
+                    ? filtered.OrderBy(p => p.Title)
+                    : filtered.OrderByDescending(p => p.Title),
+                "status" => sortAscending
+                    ? filtered.OrderBy(p => p.Status)
+                    : filtered.OrderByDescending(p => p.Status),
+                _ => sortAscending
+                    ? filtered.OrderBy(p => p.PublishedAt ?? p.UpdatedAt ?? p.CreatedAt)
+                    : filtered.OrderByDescending(p => p.PublishedAt ?? p.UpdatedAt ?? p.CreatedAt),
+            };
+
+            result = new PagedResult<Post>
+            {
+                Items = filtered.ToList(),
+                Page = result.Page,
+                PageSize = result.PageSize,
+                TotalCount = result.TotalCount,
+            };
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private async Task ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column == "title"; // Title defaults ascending, others descending
+        }
+        await LoadPostsAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        currentPage = page;
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (result is null) return;
+
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. result.Items.Select(p => p.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkFeatureAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.SetFeaturedAsync([.. selectedIds], true);
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private async Task BulkUnfeatureAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.SetFeaturedAsync([.. selectedIds], false);
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private async Task BulkPublishAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        var authState = await AuthStateTask;
+        var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        foreach (var id in selectedIds)
+        {
+            try { await ContentService.PublishAsync(id, userId); } catch { /* skip already published */ }
+        }
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private async Task BulkMoveToDraftAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        foreach (var id in selectedIds)
+        {
+            try { await ContentService.UnpublishAsync(id); } catch { /* skip already draft */ }
+        }
+        selectedIds.Clear();
+        await LoadPostsAsync();
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        await PostRepository.DeleteManyAsync([.. selectedIds]);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadPostsAsync();
+    }
+
+    private async Task DuplicatePostAsync(string postId)
+    {
+        var authState = await AuthStateTask;
+        var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        var duplicate = await ContentService.DuplicateAsync(postId, userId);
+        Navigation.NavigateTo($"posts/{duplicate.Id}/edit");
+    }
+
+    private static string StatusBadgeClass(string status) => status switch
+    {
+        "published" => "bg-success",
+        "draft" => "bg-secondary",
+        "scheduled" => "bg-info text-dark",
+        _ => "bg-secondary",
+    };
+
+    private static string FormatDate(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        return dt.ToString("MMM d, yyyy");
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

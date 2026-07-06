@@ -1,0 +1,426 @@
+================================================================================
+  HOWTOSOFTWARE .NET 10 — FULL PROJECT AUDIT TODO
+  Generated: 2026-04-08
+  Build: SUCCESS (10 projects, 1 warning, 0 errors)
+================================================================================
+
+
+================================================================================
+  SECTION 1 — CRITICAL (Fix Immediately)
+================================================================================
+
+[x] 1.1  DATABASE CONNECTION LEAK — AnalyticsDashboardService
+         File: src/HowToSoftware.Infrastructure/Services/AnalyticsDashboardService.cs
+         Every dashboard method calls db.Database.OpenConnectionAsync() but never
+         closes the connection. After ~50-100 dashboard requests the connection
+         pool is exhausted and the app deadlocks.
+         Fix: Wrap each method in try/finally with connection.CloseAsync(), or
+         use `await using` on the connection scope.
+
+[x] 1.2  NEWSLETTER SEND HAS NO TRANSACTION BOUNDARY — NewsletterService
+         File: src/HowToSoftware.Core/Services/NewsletterService.cs (lines 157-230)
+         Bulk email send spans multiple SaveChangesAsync calls (Email record,
+         Batch record, Recipients, then per-recipient updates) with no wrapping
+         transaction. If the app crashes mid-send, the database is left
+         inconsistent: some emails sent but not recorded, or recipients created
+         but delivery status unknown.
+         Fix: Wrap the entire send operation in an explicit transaction. Consider
+         the Outbox pattern for the external MTA call.
+
+[x] 1.3  EXCESSIVE PER-RECIPIENT SaveChangesAsync — NewsletterService + EmailRepository
+         File: src/HowToSoftware.Core/Services/NewsletterService.cs (lines 203-235)
+         After sending, each recipient's status is updated with its own
+         SaveChangesAsync call. For 500 recipients = 500 DB round-trips (~25s).
+         Fix: Batch updates with UpdateRange() and a single SaveChangesAsync,
+         or chunk into groups of 100.
+
+[x] 1.4  CREDENTIALS IN VERSION CONTROL — appsettings.Development.json
+         Files: src/HowToSoftware.Web/appsettings.Development.json
+                src/HowToSoftware.Admin/appsettings.Development.json
+         Plain-text database password, Mailgun API key, and SMTP credentials are
+         committed. Even for dev configs this is a risk if the repo is public or
+         compromised.
+         Fix: Move all secrets to user-secrets, environment variables, or a vault.
+         Scrub from git history with `git filter-repo`.
+
+[x] 1.5  API KEY EXPOSED IN QUERY STRING — ContentApiKeyHandler
+         File: src/HowToSoftware.Web/Authentication/ContentApiKeyHandler.cs
+         Content API uses ?key={apiKey} query parameter. Keys leak to server
+         logs, browser history, Referer headers, and monitoring dashboards.
+         Fix: Migrate to Authorization: Bearer header. Keep ?key= as deprecated
+         fallback with a sunset date.
+
+[x] 1.6  TABLE NAME BRACKET INJECTION — TSqlGenerator (Migrator)
+         File: src/HowToSoftware.Migrator/TSqlGenerator.cs (~line 350)
+         Table names in INSERT statements are wrapped in [] but ] inside the name
+         is not escaped. A malicious MySQL dump could inject SQL.
+         Fix: Escape ] as ]] in all identifiers, and/or whitelist known Ghost
+         table names.
+
+
+================================================================================
+  SECTION 2 — HIGH SEVERITY (Schedule This Sprint)
+================================================================================
+
+[x] 2.1  EF CORE PREVIEW PACKAGES IN PRODUCTION
+         File: Directory.Packages.props
+         EF Core 10.0.0-preview.2.25163.8 and Identity preview packages.
+         Preview packages may have breaking changes, security patches may not
+         ship to previews, and there is no backward-compat guarantee.
+         Fix: Upgrade to stable EF Core 10 when RTM ships, or pin to .NET 9
+         stable if production timeline demands it.
+
+[x] 2.2  NO RATE LIMITING ON PUBLIC ENDPOINTS
+         Affected endpoints (no rate limiting):
+           POST /api/analytics/event — abuse → DB exhaustion
+           POST /api/donations/checkout — abuse → Stripe session flooding
+           POST /api/member/magic-link — abuse → email spam
+           POST /api/member/signup — abuse → mass fake accounts
+           POST /api/recommendations/{id}/click
+           POST /api/recommendations/{id}/subscribe
+           GET  /api/content/* (per-key throttle missing)
+         Fix: Implement ASP.NET Core 10 built-in rate limiting middleware.
+         Configure per-IP and per-key sliding windows.
+
+[x] 2.3  NO EMAIL VERIFICATION ON SIGNUP — MemberAuthController
+         File: src/HowToSoftware.Web/Controllers/MemberAuthController.cs (~line 97)
+         New members are auto-authenticated without verifying their email.
+         Enables account takeover, newsletter spam, and mass fake registrations.
+         Fix: Send verification email; only create session after token click.
+
+[x] 2.4  POTENTIAL XSS IN CONTENT RENDERING
+         File: src/HowToSoftware.Web/Pages/Post.cshtml.cs (~line 40)
+         post.Html is rendered directly. If content contains malicious JS
+         (e.g. from a compromised admin editor or database injection), it
+         executes in visitor browsers.
+         Fix: Sanitize HTML before rendering. Use HtmlSanitizer NuGet package
+         or a CSP nonce strategy.
+
+[x] 2.5  MISSING INPUT VALIDATION — DonationsController
+         File: src/HowToSoftware.Web/Controllers/DonationsController.cs
+         No maximum donation amount limit. SuccessUrl and CancelUrl not
+         validated — potential open-redirect via Stripe checkout.
+         Fix: Add [Range] attribute on amount, validate URLs are same-origin.
+
+[x] 2.6  WEBMENTION CONTENT NOT SANITIZED
+         File: src/HowToSoftware.Web/Controllers/WebmentionController.cs
+         External source/target URLs accepted with minimal validation (only
+         empty-string check). Fetched metadata stored without HTML sanitization.
+         Fix: Validate URL format, verify source references target, sanitize
+         all fetched metadata before storage.
+
+[x] 2.7  ADMIN BLAZOR AUTHORIZATION TOO BROAD
+         Files: src/HowToSoftware.Admin/Components/Pages/*
+         Several admin pages grant access to Editor/Author/Contributor roles
+         that should be restricted to Owner/Administrator only:
+           - Members CSV export
+           - Staff role management
+           - System settings
+         Fix: Audit each page's [Authorize] attribute. Apply least-privilege.
+
+[ ] 2.8  SIGNALR HUB — NO PER-METHOD RATE LIMIT OR INPUT VALIDATION
+         File: src/HowToSoftware.Admin/Hubs/AnalyticsHub.cs
+         Class-level authorization exists but individual methods don't validate
+         date range bounds or rate-limit requests.
+         Fix: Add date range ceiling (365 days), per-user request throttle,
+         and access logging.
+
+[ ] 2.9  MISSING CSRF VALIDATION IN BLAZOR FORMS
+         File: src/HowToSoftware.Admin/Program.cs (line 75)
+         app.UseAntiforgery() is called but Blazor interactive components
+         may not embed/validate tokens consistently.
+         Fix: Verify all EditForm components include <AntiforgeryToken />
+         and use [SupplyParameterFromForm].
+
+[ ] 2.10 WEBHOOK DISPATCH SILENTLY DROPS EVENTS
+         File: src/HowToSoftware.Infrastructure/Services/WebhookDispatchService.cs
+         Bounded channel (1000 items) uses DropOldest policy. If queue fills,
+         webhook events are silently lost with no notification.
+         Fix: Switch to BoundedChannelFullMode.Wait, or log + alert when queue
+         reaches 80% capacity.
+
+
+================================================================================
+  SECTION 3 — MEDIUM SEVERITY (Next Sprint)
+================================================================================
+
+[ ] 3.1  OPEN REDIRECT POTENTIAL — MagicLinkRequest.RedirectUrl
+         File: src/HowToSoftware.Web/Controllers/MemberAuthController.cs
+         RedirectUrl field in magic-link request not validated.
+         Fix: Whitelist allowed paths, reject external URLs with Url.IsLocalUrl().
+
+[ ] 3.2  ADMIN SESSION TIMEOUT TOO LONG (14 days sliding)
+         File: src/HowToSoftware.Admin/Program.cs (line 29)
+         Admin sessions slide for 14 days — effectively infinite with activity.
+         Fix: Reduce to 2 hours, disable sliding expiration.
+
+[ ] 3.3  MEMBER SESSION TIMEOUT TOO LONG (30 days sliding)
+         File: src/HowToSoftware.Web/Program.cs (~line 30)
+         Fix: Reduce to 7 days, consider disabling sliding.
+
+[ ] 3.4  NO AUDIT LOGGING FOR PRIVILEGED OPERATIONS
+         Missing audit trail for: API key creation/rotation, staff role changes,
+         content deletion, data exports, settings modification.
+         Fix: Create an append-only audit log table. Log user, operation,
+         timestamp, IP, resource, and result.
+
+[ ] 3.5  SETTINGS SERVICE CACHE RACE CONDITION
+         File: src/HowToSoftware.Core/Services/SettingsService.cs (lines 57-67)
+         Multiple threads can pass the null check, all fetch from the repo,
+         and last one wins. Not fatal but wastes DB queries on cold start.
+         Fix: Use SemaphoreSlim for async-safe cache population.
+
+[ ] 3.6  MEMBER SIGNUP RETURNS NULL INSTEAD OF RESULT TYPE
+         File: src/HowToSoftware.Core/Services/MemberService.cs (lines 60-75)
+         SignupAsync returns null for duplicate email — caller can't distinguish
+         "already exists" from "unexpected error."
+         Fix: Return a result type with status codes, or throw a typed exception.
+
+[ ] 3.7  AUTOMATED EMAIL SERVICE — SILENT FAILURES
+         File: src/HowToSoftware.Core/Services/AutomatedEmailService.cs (lines 31-58)
+         Multiple early-return paths (email not found, inactive, suppressed) all
+         return void with only log messages. Callers never know if send happened.
+         Fix: Return an enum status (Sent, SkippedInactive, SkippedSuppressed,
+         NotFound).
+
+[ ] 3.8  HARD-CODED IP ADDRESSES
+         Files: deploy/caddy/Caddyfile.edge (reverse_proxy targets)
+                src/HowToSoftware.Web/Program.cs (KnownProxies)
+                deploy.ps1 ($Target)
+         Fix: Move to configuration or DNS names. At minimum, read from
+         environment variables.
+
+[ ] 3.9  MAGIC LINK SERVICE — NO RETRY ON EMAIL FAILURE
+         File: src/HowToSoftware.Infrastructure/Services/MagicLinkService.cs
+         If the email send fails, the magic link token is consumed but never
+         delivered. No retry logic, no notification to user.
+         Fix: Add retry with exponential backoff (Polly) or re-queue on failure.
+
+[ ] 3.10 STRIPE SERVICE — NO ROLLBACK ON STRIPE API FAILURE
+         File: src/HowToSoftware.Infrastructure/Services/StripeService.cs (~line 90)
+         If Stripe API call fails after the local DB insert, records become
+         inconsistent.
+         Fix: Use Stripe idempotency keys and wrap in transaction with
+         compensation logic.
+
+[ ] 3.11 TLS SKIP VERIFY ON PANEL REVERSE PROXY
+         File: deploy/caddy/Caddyfile.edge
+         panel.howto.software uses tls_insecure_skip_verify = true.
+         Fix: Obtain proper internal certificate or configure self-signed chain.
+
+[ ] 3.12 NO CORS CONFIGURATION
+         Content API endpoints (/api/content/*) have no explicit CORS headers.
+         Third-party JavaScript clients cannot consume the API.
+         Fix: Add CORS policy for Content API with allowed origins config.
+
+
+================================================================================
+  SECTION 4 — LOW SEVERITY / IMPROVEMENTS
+================================================================================
+
+[x] 4.1  COMPILER WARNING — CS8603 null reference return
+         File: src/HowToSoftware.Migrator/MySqlDumpParser.cs (line 144)
+         Fix: Add null-forgiving operator or explicit null check.
+
+[ ] 4.2  REMOVE PreserveCompilationContext FROM INFRASTRUCTURE
+         File: src/HowToSoftware.Infrastructure/HowToSoftware.Infrastructure.csproj
+         Not needed unless runtime compilation is used. Adds output size.
+
+[ ] 4.3  CSP ALLOWS unsafe-inline FOR SCRIPTS AND STYLES
+         File: deploy/caddy/Caddyfile.edge
+         Fix: Implement nonce-based CSP, or audit all inline scripts/styles.
+
+[ ] 4.4  DOCKER IMAGES USE TAGS, NOT DIGESTS
+         Files: deploy/Dockerfile.web, deploy/Dockerfile.admin
+         Using mcr.microsoft.com/dotnet/sdk:10.0 without @sha256 digest.
+         Fix: Pin to SHA256 digests for reproducible builds.
+
+[ ] 4.5  DEPLOY SCRIPT — SPECIAL CHARS IN PASSWORDS BREAK .env
+         File: deploy.ps1
+         echo '$line' > .env is fragile with $, ", and ' in passwords.
+         Fix: Generate .env locally and scp it, or use here-document.
+
+[ ] 4.6  DEPLOY SCRIPT — NO ROLLBACK MECHANISM
+         File: deploy.ps1
+         If deployment fails mid-way, no automated rollback to previous images.
+         Fix: Tag previous images before deploy, add rollback command.
+
+[ ] 4.7  DEPLOY SCRIPT — NO POST-DEPLOY HEALTH CHECK
+         File: deploy.ps1
+         Script completes after docker compose up without waiting for health.
+         Fix: Poll /health endpoint after deploy, fail if unhealthy.
+
+[ ] 4.8  MISSING security.txt
+         No /.well-known/security.txt for responsible disclosure.
+         Fix: Add security contact file to wwwroot.
+
+[ ] 4.9  INCONSISTENT HTTP STATUS CODES ACROSS CONTROLLERS
+         Some endpoints return 400 for validation errors, others 422.
+         Different error response formats across controllers.
+         Fix: Standardize on Ghost-compatible error envelope for all APIs.
+
+[ ] 4.10 NO STRUCTURED LOGGING (Serilog)
+         BUILD.md Phase 12.5 marks this incomplete. Only default console logging.
+         Fix: Add Serilog with console + file sinks. Add request correlation IDs.
+
+[ ] 4.11 NO OBSERVABILITY STACK (OpenTelemetry)
+         No distributed tracing, no metrics export.
+         Fix: Add OpenTelemetry packages, configure traces/metrics export.
+
+[ ] 4.12 NO RESILIENCE POLICIES (Polly)
+         External integrations (Mailgun, Stripe, webhooks) have no retry logic.
+         Fix: Add Polly retry/circuit-breaker for all external HTTP calls.
+
+[ ] 4.13 REPOSITORY — PostsWithIncludes() OVER-FETCHES
+         File: src/HowToSoftware.Infrastructure/Data/Repositories/PostRepository.cs
+         Every query loads 4 nested includes. For listing endpoints that only
+         need Title/Slug, this wastes DB resources.
+         Fix: Create specialized query methods (PostsWithTagsOnly, etc.).
+
+[ ] 4.14 REPOSITORY — GetRelatedPostsAsync USES TWO QUERIES
+         File: src/HowToSoftware.Infrastructure/Data/Repositories/PostRepository.cs
+         Gets tag IDs first, then filters posts. Can be single subquery.
+
+[ ] 4.15 MEMBER SEARCH — String.Contains() NOT INDEXED
+         File: src/HowToSoftware.Infrastructure/Data/Repositories/MemberRepository.cs
+         Use EF.Functions.Like() for index-compatible LIKE queries.
+
+[ ] 4.16 IMAGEMIGRATOR — SYMLINK PATH TRAVERSAL
+         File: src/HowToSoftware.Migrator/ImageMigrator.cs (~lines 50-60)
+         If Ghost content/images contains symlinks pointing outside the dir,
+         files could be copied from unintended locations.
+         Fix: Validate destination path stays within target directory.
+
+[ ] 4.17 SQLEXECUTOR — PII LEAKAGE IN ERROR MESSAGES
+         File: src/HowToSoftware.Migrator/SqlExecutor.cs (~line 35)
+         Batch preview (200 chars) shown on error may contain user emails/data.
+         Fix: Sanitize or omit batch preview in error output.
+
+[ ] 4.18 NO EXTERNAL HTTP CALL TIMEOUTS
+         Webmention URL fetches and other external calls may not have explicit
+         timeouts configured, risking resource exhaustion.
+         Fix: Set HttpClient.Timeout = TimeSpan.FromSeconds(10) for all
+         external-facing HttpClient instances.
+
+
+================================================================================
+  SECTION 5 — TEST COVERAGE GAPS
+================================================================================
+
+  Coverage Summary:
+    Core.Tests:           98% services tested        ✓ EXCELLENT
+    Infrastructure.Tests: 24% services tested        ✗ POOR
+    Web.Tests:            50% controllers tested     ~ MODERATE
+    Admin.Tests:           3% components tested      ✗ MINIMAL
+    Migrator.Tests:       100% components tested     ✓ EXCELLENT
+
+  --- Infrastructure Services — NO TESTS (21 of 25) ---
+
+[ ] 5.1  ActivityPubService — NO TESTS
+[ ] 5.2  ActivityPubHttpClient — NO TESTS
+[ ] 5.3  AnalyticsDashboardService — NO TESTS
+[ ] 5.4  CollectionService (Infrastructure) — NO TESTS
+[ ] 5.5  DashboardService — NO TESTS
+[ ] 5.6  DonationService (Infrastructure) — NO TESTS
+[ ] 5.7  EmailBatchSenderService — NO TESTS (email delivery pipeline)
+[ ] 5.8  GhostBcryptPasswordHasher — NO TESTS
+[ ] 5.9  GeoIpService — NO TESTS
+[ ] 5.10 ImageStorageService — NO TESTS
+[ ] 5.11 IndexNowService (Infrastructure) — NO TESTS
+[ ] 5.12 IntegrationService — NO TESTS
+[ ] 5.13 MagicLinkService — NO TESTS
+[ ] 5.14 MentionService (Infrastructure) — NO TESTS
+[ ] 5.15 OfferService (Infrastructure) — NO TESTS
+[ ] 5.16 RecommendationService (Infrastructure) — NO TESTS
+[ ] 5.17 RedirectService (Infrastructure) — NO TESTS
+[ ] 5.18 SnippetService (Infrastructure) — NO TESTS
+[ ] 5.19 StripeService (Infrastructure) — NO TESTS
+[ ] 5.20 WebhookDispatchService — NO TESTS
+
+  --- Infrastructure Repositories — NO TESTS (12 of 16) ---
+
+[ ] 5.21 AnalyticsRepository — NO TESTS
+[ ] 5.22 ApiKeyRepository — NO TESTS
+[ ] 5.23 AutomatedEmailRepository — NO TESTS
+[ ] 5.24 ActivityPubRepository — NO TESTS
+[ ] 5.25 BruteForceRepository — NO TESTS
+[ ] 5.26 CommentRepository — NO TESTS
+[ ] 5.27 InviteRepository — NO TESTS
+[ ] 5.28 LabelRepository — NO TESTS
+[ ] 5.29 NewsletterRepository — NO TESTS
+[ ] 5.30 SearchRepository — NO TESTS
+[ ] 5.31 TagRepository — NO TESTS
+[ ] 5.32 UserRepository — NO TESTS
+
+  --- Web Controllers — NO TESTS (10 of 20) ---
+
+[ ] 5.33 ActivityPubController — NO TESTS
+[ ] 5.34 ContentSearchController — NO TESTS
+[ ] 5.35 ContentSnippetsController — NO TESTS
+[ ] 5.36 DonationsController — NO TESTS
+[ ] 5.37 MemberAuthController — NO TESTS (authentication flow!)
+[ ] 5.38 OffersController — NO TESTS
+[ ] 5.39 RecommendationsController — NO TESTS
+[ ] 5.40 StripeWebhookController — NO TESTS (payment webhooks!)
+[ ] 5.41 WebFingerController — NO TESTS
+[ ] 5.42 WebmentionController — NO TESTS
+
+  --- Admin — NO BLAZOR COMPONENT TESTS ---
+
+[ ] 5.43 Add bUnit test framework to Admin.Tests
+[ ] 5.44 PostEditor.razor — NO TESTS
+[ ] 5.45 Staff.razor — NO TESTS (role management!)
+[ ] 5.46 Settings.razor — NO TESTS
+[ ] 5.47 Members.razor — NO TESTS
+[ ] 5.48 All other Blazor components — NO TESTS
+
+  --- Core — Minor Gaps ---
+
+[ ] 5.49 GhostImportExportService — NO TESTS
+[ ] 5.50 Remove placeholder UnitTest1.cs from Core.Tests
+[ ] 5.51 Add concurrency/performance tests to NewsletterService
+[ ] 5.52 Add partial-failure handling tests to email batch send
+
+
+================================================================================
+  SECTION 6 — BUILD.MD INCOMPLETE ITEMS (from Phase 11-12)
+================================================================================
+
+[ ] 6.1  Phase 11.3 — Web.Tests: Remaining controller + Razor page tests
+[ ] 6.2  Phase 11.4 — Admin.Tests: Blazor component tests (bUnit)
+[ ] 6.3  Phase 11.5 — Docker integration test: compose up → health → API verify
+[ ] 6.4  Phase 11.6 — Security audit: OWASP Top 10 review (issues listed above)
+[ ] 6.5  Phase 11.7 — Performance baseline: Load test < 200ms p95
+[ ] 6.6  Phase 12.1 — CI/CD: GitHub Actions pipeline
+[ ] 6.7  Phase 12.3 — Database backup: Scheduled SQL Server backup container
+[ ] 6.8  Phase 12.5 — Structured logging: Serilog setup
+
+
+================================================================================
+  SECTION 7 — ARCHITECTURE NOTES
+================================================================================
+
+  Service Placement Inconsistency:
+    8 service interfaces defined in Core/Interfaces/ have their implementations
+    in Infrastructure/Services/ instead of Core/Services/. Business logic
+    should live in Core; only data-access/integration code in Infrastructure.
+    Affected: MentionService, RecommendationService, OfferService,
+    CollectionService, DonationService, SnippetService, IntegrationService,
+    RedirectService.
+
+  Missing Database Indexes (based on query patterns):
+    - PostsTags.TagId (for tag-based post queries)
+    - MembersNewsletters (MemberId, NewsletterId) UNIQUE constraint
+    - EmailRecipients.EmailId (for recipients-by-email queries)
+    - MembersLabels (MemberId, LabelId) UNIQUE constraint
+    - Suppressions.Email (for is-suppressed lookups)
+
+  ContentService Tag Update Inefficiency:
+    File: src/HowToSoftware.Core/Services/ContentService.cs (lines 131-145)
+    PostsTags.Clear() loads the entire collection then deletes one-by-one.
+    For posts with many tags, use ExecuteDeleteAsync directly.
+
+
+================================================================================
+  END OF AUDIT
+================================================================================

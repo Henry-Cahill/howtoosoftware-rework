@@ -1,0 +1,269 @@
+@page "/snippets/new"
+@page "/snippets/{SnippetId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ISnippetService SnippetService
+@inject ILexicalRenderer LexicalRenderer
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Snippet" : $"Edit — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+        <a href="snippets" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Snippets
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Snippet</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@name</strong>? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Snippet details</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="Snippet name" />
+                        <div class="form-text">A unique name to identify this snippet in the editor.</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            <label class="form-label mb-0">Content (Lexical JSON)</label>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="CopyLexicalAsync"
+                                    disabled="@string.IsNullOrWhiteSpace(lexical)">
+                                <i class="bi bi-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <textarea class="form-control font-monospace" rows="12" @bind="lexical"
+                                  placeholder='{"root":{"children":[...],"direction":null,"format":"","indent":0,"type":"root","version":1}}'></textarea>
+                        <div class="form-text">The Lexical editor JSON for this snippet. Paste from the editor's JSON output.</div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(lexical))
+                    {
+                        <div class="mb-3">
+                            <label class="form-label d-flex align-items-center gap-2">
+                                <i class="bi bi-eye"></i> Preview
+                            </label>
+                            <div class="snippet-preview border rounded p-3">
+                                @((MarkupString)(LexicalRenderer.Render(lexical) ?? "<p class='text-muted fst-italic'>Nothing to render.</p>"))
+                            </div>
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Content (Mobiledoc JSON)</label>
+                        <textarea class="form-control font-monospace" rows="8" @bind="mobiledoc"
+                                  placeholder='{"version":"0.3.1","atoms":[],"cards":[],"markups":[],"sections":[]}'></textarea>
+                        <div class="form-text">Legacy Mobiledoc JSON format. Required for backwards compatibility.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && snippet is not null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Info</h6></div>
+                    <div class="card-body small text-muted">
+                        <div class="mb-1"><strong>ID:</strong> <span class="font-monospace">@snippet.Id</span></div>
+                        <div class="mb-1"><strong>Created:</strong> @snippet.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                        @if (snippet.UpdatedAt.HasValue)
+                        {
+                            <div><strong>Updated:</strong> @snippet.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? SnippetId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(SnippetId);
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showDeleteConfirm;
+
+    private Snippet? snippet;
+
+    // Form fields
+    private string name = "";
+    private string mobiledoc = "";
+    private string? lexical;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            snippet = await SnippetService.GetByIdAsync(SnippetId!);
+            if (snippet is null)
+            {
+                Navigation.NavigateTo("snippets");
+                return;
+            }
+
+            name = snippet.Name;
+            mobiledoc = snippet.Mobiledoc;
+            lexical = snippet.Lexical;
+        }
+
+        loaded = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(mobiledoc))
+        {
+            statusMessage = "Mobiledoc content is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+
+        try
+        {
+            if (IsNew)
+            {
+                var created = await SnippetService.CreateAsync(new CreateSnippetRequest
+                {
+                    Name = name,
+                    Mobiledoc = mobiledoc,
+                    Lexical = string.IsNullOrWhiteSpace(lexical) ? null : lexical,
+                });
+
+                Navigation.NavigateTo($"snippets/{created.Id}/edit");
+            }
+            else
+            {
+                await SnippetService.UpdateAsync(SnippetId!, new UpdateSnippetRequest
+                {
+                    Name = name,
+                    Mobiledoc = mobiledoc,
+                    Lexical = string.IsNullOrWhiteSpace(lexical) ? null : lexical,
+                });
+
+                statusMessage = "Saved";
+                isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        try
+        {
+            await SnippetService.DeleteAsync(SnippetId!);
+            Navigation.NavigateTo("snippets");
+        }
+        catch (Exception ex)
+        {
+            showDeleteConfirm = false;
+            statusMessage = ex.Message;
+            isError = true;
+        }
+    }
+
+    private async Task CopyLexicalAsync()
+    {
+        if (string.IsNullOrWhiteSpace(lexical))
+        {
+            statusMessage = "No Lexical JSON to copy.";
+            isError = true;
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("copyTextToClipboard", lexical);
+            statusMessage = "Lexical JSON copied.";
+            isError = false;
+        }
+        catch (JSException)
+        {
+            statusMessage = "Clipboard access failed.";
+            isError = true;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

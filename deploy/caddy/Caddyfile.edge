@@ -1,0 +1,138 @@
+# Edge Proxy Configuration
+# This Caddy server acts as the main entry point for all web traffic
+# Port forward 80 and 443 from your router to this server's IP
+#
+# Upstream hosts and the Ollama bearer token are injected from environment
+# variables at load time — set these before starting Caddy:
+#   APP_SERVER_HOST, FRONTEND_HOST, PTERODACTYL_HOST, OLLAMA_HOST,
+#   OLLAMA_BEARER_TOKEN
+
+# www → apex redirect
+www.howtoosoftware.com {
+    redir https://howtoosoftware.com{uri} permanent
+}
+
+# howtoosoftware.com → ASP.NET stack on {$APP_SERVER_HOST}
+howtoosoftware.com {
+    # ── Routing ──────────────────────────────────────────────
+
+    # Ghost versioned Content API → new Content API (301 redirect)
+    @ghostContentApi path_regexp ghostapi ^/ghost/api/(v\d+/)?content(.*)$
+    handle @ghostContentApi {
+        redir /api/content{re.ghostapi.2}{query} permanent
+    }
+
+    # Ghost sitemap → unified sitemap
+    handle /ghost/sitemap.xml {
+        redir /sitemap.xml permanent
+    }
+
+    # Admin panel — /ghost/ prefix → Blazor admin app
+    handle /ghost/* {
+        reverse_proxy {$APP_SERVER_HOST}:5001
+    }
+
+    # Everything else → public web app
+    handle {
+        reverse_proxy {$APP_SERVER_HOST}:80
+    }
+
+    # ── Security headers ─────────────────────────────────────
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        X-XSS-Protection "1; mode=block"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' wss: https://esm.sh; frame-ancestors 'none'"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}
+
+# unorthodox-ways.com → UW frontend on {$FRONTEND_HOST}
+unorthodox-ways.com {
+    reverse_proxy {$FRONTEND_HOST}:80
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}
+
+# legacy-asset-group.com → LAG frontend on {$FRONTEND_HOST}
+legacy-asset-group.com {
+    reverse_proxy {$FRONTEND_HOST}:3002
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}
+
+# panel.howto.software → Pterodactyl panel on {$PTERODACTYL_HOST}
+panel.howto.software {
+    reverse_proxy https://{$PTERODACTYL_HOST} {
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name panel.howto.software
+        }
+    }
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}
+
+# ollama.howtoosoftware.com → Ollama LLM API on {$OLLAMA_HOST}
+ollama.howtoosoftware.com {
+    # LAN clients skip auth
+    @lan remote_ip 192.168.1.0/24 10.0.0.0/8 172.16.0.0/12
+    handle @lan {
+        reverse_proxy {$OLLAMA_HOST}:11434 {
+            header_up Host {upstream_hostport}
+        }
+    }
+
+    # External clients require Bearer token
+    @unauthorized not header Authorization "Bearer {$OLLAMA_BEARER_TOKEN}"
+    handle {
+        respond @unauthorized "Unauthorized" 401
+        reverse_proxy {$OLLAMA_HOST}:11434 {
+            header_up Host {upstream_hostport}
+        }
+    }
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}
+
+# llm.howtoosoftware.com → Open WebUI on {$OLLAMA_HOST}
+llm.howtoosoftware.com {
+    reverse_proxy {$OLLAMA_HOST}:3000 {
+        header_up Host {upstream_hostport}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    encode gzip zstd
+
+    log {
+        output stdout
+    }
+}

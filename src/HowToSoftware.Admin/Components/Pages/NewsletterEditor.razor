@@ -1,0 +1,1125 @@
+@page "/newsletters/new"
+@page "/newsletters/{NewsletterId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using System.Security.Claims
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject INewsletterRepository NewsletterRepository
+@inject ISlugGenerator SlugGenerator
+@inject ISettingsService SettingsService
+@inject IEmailService EmailService
+@inject IImageStorageService ImageStorage
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Newsletter" : $"Edit Newsletter — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="newsletters" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Newsletters
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-secondary" @onclick="TogglePreviewAsync">
+            <i class="bi bi-eye me-1"></i>@(showPreview ? "Hide preview" : "Preview")
+        </button>
+        @if (!IsNew)
+        {
+            <a href="newsletters/@NewsletterId/analytics" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-bar-chart me-1"></i>Analytics
+            </a>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="SendTestEmailAsync" disabled="@sendingTest">
+                @if (sendingTest) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <i class="bi bi-send me-1"></i>Send test
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <!-- General Settings -->
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">General</h6></div>
+                <div class="card-body">
+                    <!-- Name -->
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="Newsletter name" />
+                    </div>
+
+                    <!-- Slug -->
+                    <div class="mb-3">
+                        <label class="form-label">Slug</label>
+                        <input type="text" class="form-control" @bind="slug" placeholder="auto-generated" />
+                    </div>
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="description"
+                                  placeholder="Short description for this newsletter…"></textarea>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" @bind="status">
+                            <option value="active">Active</option>
+                            <option value="archived">Archived</option>
+                        </select>
+                    </div>
+
+                    <!-- Sort Order -->
+                    <div class="mb-3">
+                        <label class="form-label">Sort order</label>
+                        <input type="number" class="form-control" style="max-width: 120px" @bind="sortOrder" min="0" />
+                    </div>
+
+                    <!-- Subscribe on Signup -->
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="chkSubscribeOnSignup" @bind="subscribeOnSignup" />
+                        <label class="form-check-label" for="chkSubscribeOnSignup">Subscribe on signup</label>
+                        <div class="form-text">New free members are automatically subscribed to this newsletter.</div>
+                    </div>
+
+                    <!-- Archive page -->
+                    <div class="form-check mb-0">
+                        <input type="checkbox" class="form-check-input" id="chkArchiveEnabled" @bind="archiveEnabled" />
+                        <label class="form-check-label" for="chkArchiveEnabled">Public archive page</label>
+                        <div class="form-text">
+                            Expose sent editions at
+                            <code>/newsletter/@(string.IsNullOrWhiteSpace(slug) ? "{slug}" : slug)/archive/</code>
+                            so visitors can browse past issues.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sender Settings -->
+            <div class="card mt-4">
+                <div class="card-header"><h6 class="mb-0">Sender</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Sender name</label>
+                        <input type="text" class="form-control" @bind="senderName" placeholder="Site title" />
+                        <div class="form-text">The name shown in the "From" field. Defaults to site title if empty.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Sender email</label>
+                        <input type="email" class="form-control" @bind="senderEmail" placeholder="noreply@your-domain.com" />
+                        <div class="form-text">The email address used in the "From" field.</div>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label">Reply-to address</label>
+                        <select class="form-select" @bind="senderReplyTo">
+                            <option value="newsletter">Newsletter address</option>
+                            <option value="support">Support address</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Design Settings -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Design</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showDesign = !showDesign">
+                        <i class="bi @(showDesign ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showDesign)
+                {
+                    <div class="card-body">
+                        <!-- Header Section -->
+                        <h6 class="text-muted small text-uppercase mb-3">Header</h6>
+
+                        <!-- Header Image -->
+                        <div class="mb-3">
+                            <label class="form-label">Header image</label>
+                            @if (!string.IsNullOrEmpty(headerImage))
+                            {
+                                <div class="feature-image-preview">
+                                    <img src="@headerImage" alt="Header image" />
+                                    <button class="btn btn-sm btn-danger feature-image-remove"
+                                            @onclick="() => headerImage = null">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <label class="feature-image-upload">
+                                    <InputFile OnChange="UploadHeaderImageAsync" accept="image/*" />
+                                    <i class="bi bi-image me-2"></i>Add header image
+                                </label>
+                            }
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowHeaderIcon"
+                                           @bind="showHeaderIcon" />
+                                    <label class="form-check-label" for="chkShowHeaderIcon">Show site icon</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowHeaderTitle"
+                                           @bind="showHeaderTitle" />
+                                    <label class="form-check-label" for="chkShowHeaderTitle">Show site title</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowHeaderName"
+                                           @bind="showHeaderName" />
+                                    <label class="form-check-label" for="chkShowHeaderName">Show newsletter name</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Header background color</label>
+                            <div class="input-group" style="max-width: 280px">
+                                <input type="color" class="form-control form-control-color"
+                                       value="@HeaderColorValue"
+                                       @onchange="OnHeaderColorChanged" />
+                                <input type="text" class="form-control" @bind="headerBackgroundColor" />
+                                <button class="btn btn-outline-secondary"
+                                        @onclick="ResetHeaderBackgroundColor">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Typography -->
+                        <h6 class="text-muted small text-uppercase mb-3">Typography</h6>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Title font</label>
+                                <select class="form-select" @bind="titleFontCategory">
+                                    <option value="sans_serif">Sans-serif</option>
+                                    <option value="serif">Serif</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Title alignment</label>
+                                <select class="form-select" @bind="titleAlignment">
+                                    <option value="center">Center</option>
+                                    <option value="left">Left</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Title weight</label>
+                                <select class="form-select" @bind="titleFontWeight">
+                                    <option value="bold">Bold</option>
+                                    <option value="normal">Normal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Body font</label>
+                            <select class="form-select" style="max-width: 240px" @bind="bodyFontCategory">
+                                <option value="sans_serif">Sans-serif</option>
+                                <option value="serif">Serif</option>
+                            </select>
+                        </div>
+
+                        <hr />
+
+                        <!-- Content Display -->
+                        <h6 class="text-muted small text-uppercase mb-3">Content</h6>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowFeatureImage"
+                                           @bind="showFeatureImage" />
+                                    <label class="form-check-label" for="chkShowFeatureImage">Feature image</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowExcerpt"
+                                           @bind="showExcerpt" />
+                                    <label class="form-check-label" for="chkShowExcerpt">Excerpt</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowPostTitleSection"
+                                           @bind="showPostTitleSection" />
+                                    <label class="form-check-label" for="chkShowPostTitleSection">Post title section</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowCommentCta"
+                                           @bind="showCommentCta" />
+                                    <label class="form-check-label" for="chkShowCommentCta">Comment CTA</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowSubscriptionDetails"
+                                           @bind="showSubscriptionDetails" />
+                                    <label class="form-check-label" for="chkShowSubscriptionDetails">Subscription details</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowLatestPosts"
+                                           @bind="showLatestPosts" />
+                                    <label class="form-check-label" for="chkShowLatestPosts">Latest posts</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Badge & Feedback -->
+                        <h6 class="text-muted small text-uppercase mb-3">Badge &amp; Feedback</h6>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkShowBadge"
+                                           @bind="showBadge" />
+                                    <label class="form-check-label" for="chkShowBadge">Show badge</label>
+                                    <div class="form-text">Show "Powered by Ghost" badge in footer.</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="chkFeedbackEnabled"
+                                           @bind="feedbackEnabled" />
+                                    <label class="form-check-label" for="chkFeedbackEnabled">Feedback enabled</label>
+                                    <div class="form-text">Show feedback buttons (like/dislike) in emails.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Colors & Styling -->
+                        <h6 class="text-muted small text-uppercase mb-3">Colors &amp; Styling</h6>
+
+                        <div class="mb-3">
+                            <label class="form-label">Background color</label>
+                            <select class="form-select" style="max-width: 200px" @bind="backgroundColor">
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                            </select>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small">Post title color</label>
+                                <div class="input-group" style="max-width: 240px">
+                                    <input type="color" class="form-control form-control-color"
+                                           value="@(postTitleColor ?? "#000000")"
+                                           @onchange="e => postTitleColor = e.Value?.ToString()" />
+                                    <input type="text" class="form-control" @bind="postTitleColor" placeholder="default" />
+                                    @if (!string.IsNullOrEmpty(postTitleColor))
+                                    {
+                                        <button class="btn btn-outline-secondary" @onclick="() => postTitleColor = null">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Section title color</label>
+                                <div class="input-group" style="max-width: 240px">
+                                    <input type="color" class="form-control form-control-color"
+                                           value="@(sectionTitleColor ?? "#000000")"
+                                           @onchange="e => sectionTitleColor = e.Value?.ToString()" />
+                                    <input type="text" class="form-control" @bind="sectionTitleColor" placeholder="default" />
+                                    @if (!string.IsNullOrEmpty(sectionTitleColor))
+                                    {
+                                        <button class="btn btn-outline-secondary" @onclick="() => sectionTitleColor = null">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small">Divider color</label>
+                                <div class="input-group" style="max-width: 240px">
+                                    <input type="color" class="form-control form-control-color"
+                                           value="@(dividerColor ?? "#e5e7eb")"
+                                           @onchange="e => dividerColor = e.Value?.ToString()" />
+                                    <input type="text" class="form-control" @bind="dividerColor" placeholder="default" />
+                                    @if (!string.IsNullOrEmpty(dividerColor))
+                                    {
+                                        <button class="btn btn-outline-secondary" @onclick="() => dividerColor = null">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Button color</label>
+                                <div class="input-group" style="max-width: 240px">
+                                    <input type="text" class="form-control" @bind="buttonColor"
+                                           placeholder="accent" />
+                                    @if (!string.IsNullOrEmpty(buttonColor) && buttonColor != "accent")
+                                    {
+                                        <button class="btn btn-outline-secondary" @onclick="ResetButtonColor">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    }
+                                </div>
+                                <div class="form-text">Use "accent" for site accent color, or a hex value.</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small">Link color</label>
+                            <div class="input-group" style="max-width: 240px">
+                                <input type="text" class="form-control" @bind="linkColor" placeholder="accent" />
+                                @if (!string.IsNullOrEmpty(linkColor) && linkColor != "accent")
+                                {
+                                    <button class="btn btn-outline-secondary" @onclick="ResetLinkColor">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Element Styles -->
+                        <h6 class="text-muted small text-uppercase mb-3">Element Styles</h6>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label small">Button corners</label>
+                                <select class="form-select form-select-sm" @bind="buttonCorners">
+                                    <option value="rounded">Rounded</option>
+                                    <option value="square">Square</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Button style</label>
+                                <select class="form-select form-select-sm" @bind="buttonStyle">
+                                    <option value="fill">Fill</option>
+                                    <option value="outline">Outline</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Link style</label>
+                                <select class="form-select form-select-sm" @bind="linkStyle">
+                                    <option value="underline">Underline</option>
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Image corners</label>
+                                <select class="form-select form-select-sm" @bind="imageCorners">
+                                    <option value="square">Square</option>
+                                    <option value="rounded">Rounded</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Footer -->
+                        <h6 class="text-muted small text-uppercase mb-3">Footer</h6>
+
+                        <div class="mb-0">
+                            <label class="form-label">Footer content</label>
+                            <textarea class="form-control" rows="3" @bind="footerContent"
+                                      placeholder="Custom footer text shown below each email…"></textarea>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && newsletter is not null)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Newsletter details</h6>
+                        <dl class="small mb-0">
+                            <dt class="text-muted">ID</dt>
+                            <dd class="font-monospace small">@newsletter.Id</dd>
+
+                            <dt class="text-muted">Slug</dt>
+                            <dd>@newsletter.Slug</dd>
+
+                            <dt class="text-muted">Status</dt>
+                            <dd>
+                                <span class="badge @(newsletter.Status == "active" ? "bg-success" : "bg-secondary")">
+                                    @newsletter.Status
+                                </span>
+                            </dd>
+
+                            <dt class="text-muted">Subscribers</dt>
+                            <dd>@subscriberCount</dd>
+
+                            <dt class="text-muted">Created</dt>
+                            <dd>@newsletter.CreatedAt.ToString("MMM d, yyyy HH:mm")</dd>
+
+                            @if (newsletter.UpdatedAt.HasValue)
+                            {
+                                <dt class="text-muted">Updated</dt>
+                                <dd>@newsletter.UpdatedAt.Value.ToString("MMM d, yyyy HH:mm")</dd>
+                            }
+                        </dl>
+                    </div>
+                </div>
+            }
+
+            <!-- Visibility -->
+            @if (!IsNew)
+            {
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h6>Visibility</h6>
+                        <select class="form-select" @bind="visibility">
+                            <option value="members">Members</option>
+                            <option value="paid">Paid members</option>
+                        </select>
+                        <div class="form-text mt-2">Controls who can subscribe to this newsletter.</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Live Email Preview Modal -->
+@if (showPreview)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width: min(900px, 95vw);">
+            <div class="modal-content" style="height: 90vh;">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-envelope me-2"></i>Email preview
+                        @if (previewLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm ms-2" role="status"></span>
+                        }
+                    </h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted me-2">Updates live as you edit design settings.</small>
+                        <button type="button" class="btn-close" @onclick="() => showPreview = false"></button>
+                    </div>
+                </div>
+                <div class="modal-body p-0" style="background: #f3f4f6; overflow: hidden;">
+                    @if (!string.IsNullOrEmpty(previewError))
+                    {
+                        <div class="alert alert-danger m-3 mb-0">
+                            <i class="bi bi-exclamation-triangle me-1"></i>@previewError
+                        </div>
+                    }
+                    else if (string.IsNullOrEmpty(previewHtml))
+                    {
+                        <div class="d-flex justify-content-center align-items-center text-muted" style="height: 100%;">
+                            <span class="spinner-border spinner-border-sm me-2"></span> Rendering preview…
+                        </div>
+                    }
+                    else
+                    {
+                        <iframe srcdoc="@previewHtml"
+                                sandbox="allow-same-origin"
+                                style="width: 100%; height: 100%; border: 0; background: white;"
+                                title="Email preview"></iframe>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete newsletter</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the newsletter <strong>@name</strong>?
+                       All subscriber associations will be removed. This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? NewsletterId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(NewsletterId);
+
+    // State
+    private Newsletter? newsletter;
+    private bool loaded;
+    private bool saving;
+    private bool sendingTest;
+    private bool showDesign = true;
+    private bool showDeleteConfirm;
+    private string? statusMessage;
+    private bool isError;
+    private int subscriberCount;
+
+    // Preview state
+    private bool showPreview;
+    private string? previewHtml;
+    private bool previewLoading;
+    private string? previewError;
+    private string? lastPreviewKey;
+    private System.Threading.CancellationTokenSource? previewCts;
+
+    // General fields
+    private string name = "";
+    private string slug = "";
+    private string? description;
+    private string status = "active";
+    private int sortOrder;
+    private bool subscribeOnSignup = true;
+    private bool archiveEnabled;
+    private string visibility = "members";
+
+    // Sender fields
+    private string? senderName;
+    private string? senderEmail;
+    private string senderReplyTo = "newsletter";
+
+    // Design - Header
+    private string? headerImage;
+    private bool showHeaderIcon = true;
+    private bool showHeaderTitle = true;
+    private bool showHeaderName = true;
+    private string headerBackgroundColor = "transparent";
+
+    // Design - Typography
+    private string titleFontCategory = "sans_serif";
+    private string titleAlignment = "center";
+    private string titleFontWeight = "bold";
+    private string bodyFontCategory = "sans_serif";
+
+    // Design - Content
+    private bool showFeatureImage = true;
+    private bool showExcerpt;
+    private bool showPostTitleSection = true;
+    private bool showCommentCta = true;
+    private bool showSubscriptionDetails;
+    private bool showLatestPosts;
+
+    // Design - Badge & Feedback
+    private bool showBadge = true;
+    private bool feedbackEnabled;
+
+    // Design - Colors
+    private string backgroundColor = "light";
+    private string? postTitleColor;
+    private string? sectionTitleColor;
+    private string? dividerColor;
+    private string? buttonColor = "accent";
+    private string? linkColor = "accent";
+
+    // Design - Element styles
+    private string buttonCorners = "rounded";
+    private string buttonStyle = "fill";
+    private string linkStyle = "underline";
+    private string imageCorners = "square";
+
+    // Design - Footer
+    private string? footerContent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            newsletter = await NewsletterRepository.GetByIdAsync(NewsletterId!);
+            if (newsletter is null)
+            {
+                Navigation.NavigateTo("newsletters");
+                return;
+            }
+            LoadNewsletterIntoForm(newsletter);
+            subscriberCount = await NewsletterRepository.GetSubscriberCountAsync(newsletter.Id);
+        }
+        loaded = true;
+    }
+
+    private void LoadNewsletterIntoForm(Newsletter n)
+    {
+        name = n.Name;
+        slug = n.Slug;
+        description = n.Description;
+        status = n.Status;
+        sortOrder = n.SortOrder;
+        subscribeOnSignup = n.SubscribeOnSignup;
+        archiveEnabled = n.ArchiveEnabled;
+        visibility = n.Visibility;
+
+        senderName = n.SenderName;
+        senderEmail = n.SenderEmail;
+        senderReplyTo = n.SenderReplyTo;
+
+        headerImage = n.HeaderImage;
+        showHeaderIcon = n.ShowHeaderIcon;
+        showHeaderTitle = n.ShowHeaderTitle;
+        showHeaderName = n.ShowHeaderName;
+        headerBackgroundColor = n.HeaderBackgroundColor;
+
+        titleFontCategory = n.TitleFontCategory;
+        titleAlignment = n.TitleAlignment;
+        titleFontWeight = n.TitleFontWeight;
+        bodyFontCategory = n.BodyFontCategory;
+
+        showFeatureImage = n.ShowFeatureImage;
+        showExcerpt = n.ShowExcerpt;
+        showPostTitleSection = n.ShowPostTitleSection;
+        showCommentCta = n.ShowCommentCta;
+        showSubscriptionDetails = n.ShowSubscriptionDetails;
+        showLatestPosts = n.ShowLatestPosts;
+
+        showBadge = n.ShowBadge;
+        feedbackEnabled = n.FeedbackEnabled;
+
+        backgroundColor = n.BackgroundColor;
+        postTitleColor = n.PostTitleColor;
+        sectionTitleColor = n.SectionTitleColor;
+        dividerColor = n.DividerColor;
+        buttonColor = n.ButtonColor;
+        linkColor = n.LinkColor;
+
+        buttonCorners = n.ButtonCorners;
+        buttonStyle = n.ButtonStyle;
+        linkStyle = n.LinkStyle;
+        imageCorners = n.ImageCorners;
+
+        footerContent = n.FooterContent;
+    }
+
+    private void ApplyFormToNewsletter(Newsletter n)
+    {
+        n.Name = name.Trim();
+        n.Slug = slug;
+        n.Description = TrimOrNull(description);
+        n.Status = status;
+        n.SortOrder = sortOrder;
+        n.SubscribeOnSignup = subscribeOnSignup;
+        n.ArchiveEnabled = archiveEnabled;
+        n.Visibility = visibility;
+
+        n.SenderName = TrimOrNull(senderName);
+        n.SenderEmail = TrimOrNull(senderEmail);
+        n.SenderReplyTo = senderReplyTo;
+
+        n.HeaderImage = headerImage;
+        n.ShowHeaderIcon = showHeaderIcon;
+        n.ShowHeaderTitle = showHeaderTitle;
+        n.ShowHeaderName = showHeaderName;
+        n.HeaderBackgroundColor = headerBackgroundColor;
+
+        n.TitleFontCategory = titleFontCategory;
+        n.TitleAlignment = titleAlignment;
+        n.TitleFontWeight = titleFontWeight;
+        n.BodyFontCategory = bodyFontCategory;
+
+        n.ShowFeatureImage = showFeatureImage;
+        n.ShowExcerpt = showExcerpt;
+        n.ShowPostTitleSection = showPostTitleSection;
+        n.ShowCommentCta = showCommentCta;
+        n.ShowSubscriptionDetails = showSubscriptionDetails;
+        n.ShowLatestPosts = showLatestPosts;
+
+        n.ShowBadge = showBadge;
+        n.FeedbackEnabled = feedbackEnabled;
+
+        n.BackgroundColor = backgroundColor;
+        n.PostTitleColor = postTitleColor;
+        n.SectionTitleColor = sectionTitleColor;
+        n.DividerColor = dividerColor;
+        n.ButtonColor = buttonColor;
+        n.LinkColor = linkColor;
+
+        n.ButtonCorners = buttonCorners;
+        n.ButtonStyle = buttonStyle;
+        n.LinkStyle = linkStyle;
+        n.ImageCorners = imageCorners;
+
+        n.FooterContent = TrimOrNull(footerContent);
+        n.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private async Task SaveAsync()
+    {
+        statusMessage = null;
+        isError = false;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            slug = string.IsNullOrWhiteSpace(slug)
+                ? SlugGenerator.GenerateSlug(name)
+                : SlugGenerator.GenerateSlug(slug);
+
+            // Check for duplicate slug
+            var existing = await NewsletterRepository.GetBySlugAsync(slug);
+            if (existing is not null && existing.Id != (newsletter?.Id ?? ""))
+            {
+                var baseSlug = slug;
+                var counter = 2;
+                do
+                {
+                    slug = $"{baseSlug}-{counter}";
+                    existing = await NewsletterRepository.GetBySlugAsync(slug);
+                    counter++;
+                } while (existing is not null && existing.Id != (newsletter?.Id ?? ""));
+            }
+
+            if (IsNew)
+            {
+                newsletter = new Newsletter
+                {
+                    Id = Guid.NewGuid().ToString("N")[..24],
+                    Uuid = Guid.NewGuid().ToString(),
+                    CreatedAt = DateTime.UtcNow,
+                };
+                ApplyFormToNewsletter(newsletter);
+                await NewsletterRepository.AddAsync(newsletter);
+                statusMessage = "Newsletter created!";
+                Navigation.NavigateTo($"newsletters/{newsletter.Id}/edit", replace: true);
+            }
+            else
+            {
+                ApplyFormToNewsletter(newsletter!);
+                await NewsletterRepository.UpdateAsync(newsletter!);
+                statusMessage = "Newsletter saved!";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (newsletter is null) return;
+        await NewsletterRepository.DeleteAsync(newsletter.Id);
+        Navigation.NavigateTo("newsletters");
+    }
+
+    private async Task SendTestEmailAsync()
+    {
+        statusMessage = null;
+        isError = false;
+        sendingTest = true;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userEmail = authState.User.FindFirst(ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                statusMessage = "Could not determine your email address.";
+                isError = true;
+                return;
+            }
+
+            var siteTitle = await SettingsService.GetStringAsync("title") ?? "HowToSoftware";
+            var siteUrl = await SettingsService.GetStringAsync("url") ?? "https://howtoosoftware.com";
+            var siteIcon = await SettingsService.GetStringAsync("icon");
+
+            var model = new EmailTemplateModel
+            {
+                SiteTitle = siteTitle,
+                SiteUrl = siteUrl,
+                SiteIconUrl = siteIcon,
+                HeaderImage = headerImage,
+                PostTitle = "Test Newsletter Email",
+                PostUrl = siteUrl,
+                HtmlBody = "<p>This is a <strong>test email</strong> for the newsletter " +
+                           $"<em>{System.Net.WebUtility.HtmlEncode(name)}</em>. " +
+                           "If you're reading this, email delivery is working correctly.</p>",
+                FooterContent = footerContent,
+                ShowBadge = showBadge,
+                ShowHeaderIcon = showHeaderIcon,
+                ShowHeaderTitle = showHeaderTitle,
+                ShowFeatureImage = false,
+                ShowExcerpt = showExcerpt,
+                AccentColor = await SettingsService.GetStringAsync("accent_color"),
+                BackgroundColor = backgroundColor,
+                TitleFontCategory = titleFontCategory,
+                TitleAlignment = titleAlignment,
+                BodyFontCategory = bodyFontCategory,
+                PublishedAt = DateTime.UtcNow,
+            };
+
+            var html = await EmailService.RenderTemplateAsync("newsletter", model);
+
+            var fromAddress = !string.IsNullOrEmpty(senderEmail)
+                ? senderEmail
+                : $"noreply@{siteUrl.Replace("https://", "").Replace("http://", "").Split('/')[0]}";
+
+            var fromName = !string.IsNullOrEmpty(senderName) ? senderName : siteTitle;
+
+            var result = await EmailService.SendAsync(new EmailMessage
+            {
+                From = $"{fromName} <{fromAddress}>",
+                To = userEmail,
+                Subject = $"[TEST] {name}",
+                Html = html,
+            });
+
+            if (result.Success)
+            {
+                statusMessage = $"Test email sent to {userEmail}!";
+            }
+            else
+            {
+                statusMessage = $"Failed to send: {result.ErrorMessage}";
+                isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error sending test: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            sendingTest = false;
+        }
+    }
+
+    private async Task UploadHeaderImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        headerImage = result.Url;
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Live preview
+    // ────────────────────────────────────────────────────────────
+
+    private async Task TogglePreviewAsync()
+    {
+        showPreview = !showPreview;
+        if (showPreview)
+        {
+            await RefreshPreviewAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!showPreview || previewLoading) return;
+
+        var key = BuildPreviewKey();
+        if (key == lastPreviewKey) return;
+
+        await RefreshPreviewAsync();
+    }
+
+    private async Task RefreshPreviewAsync()
+    {
+        // Cancel any in-flight render so we always converge on the latest state.
+        previewCts?.Cancel();
+        var cts = new System.Threading.CancellationTokenSource();
+        previewCts = cts;
+
+        previewLoading = true;
+        previewError = null;
+        var key = BuildPreviewKey();
+        StateHasChanged();
+
+        try
+        {
+            var siteTitle = await SettingsService.GetStringAsync("title") ?? "HowToSoftware";
+            var siteUrl = await SettingsService.GetStringAsync("url") ?? "https://howtoosoftware.com";
+            var siteIcon = await SettingsService.GetStringAsync("icon");
+            var accent = await SettingsService.GetStringAsync("accent_color");
+
+            if (cts.IsCancellationRequested) return;
+
+            var model = new EmailTemplateModel
+            {
+                SiteTitle = siteTitle,
+                SiteUrl = siteUrl,
+                SiteIconUrl = siteIcon,
+                AccentColor = accent,
+
+                PostTitle = "Sample post title for preview",
+                PostUrl = siteUrl,
+                FeatureImage = showFeatureImage
+                    ? "https://images.unsplash.com/photo-1499951360447-b19be8fe80f5?auto=format&fit=crop&w=1200&q=60"
+                    : null,
+                AuthorName = "Jane Doe",
+                Excerpt = "This short excerpt previews how excerpts will render in your newsletter when enabled.",
+                PublishedAt = DateTime.UtcNow,
+                HtmlBody =
+                    "<p>This is a <strong>live preview</strong> of your newsletter design. " +
+                    "Toggle any design setting on the left and this preview will update automatically.</p>" +
+                    "<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Phasellus vitae ipsum " +
+                    "id nulla porta facilisis. <a href=\"#\">Sample link</a> shows how links are styled.</p>" +
+                    "<blockquote><p>\u201CSample quote to demonstrate blockquote styling within the email body.\u201D</p></blockquote>" +
+                    "<p>And one more paragraph so you can see paragraph spacing and body typography.</p>" +
+                    "<p style=\"text-align:center\"><a href=\"#\" class=\"btn\" " +
+                    "style=\"display:inline-block;padding:12px 24px;background:#0d6efd;color:#fff;" +
+                    "text-decoration:none;border-radius:4px;\">Sample button</a></p>",
+
+                HeaderImage = headerImage,
+                ShowBadge = showBadge,
+                ShowHeaderIcon = showHeaderIcon,
+                ShowHeaderTitle = showHeaderTitle,
+                ShowHeaderName = showHeaderName,
+                ShowFeatureImage = showFeatureImage,
+                ShowExcerpt = showExcerpt,
+                ShowPostTitleSection = showPostTitleSection,
+                ShowCommentCta = showCommentCta,
+                FeedbackEnabled = feedbackEnabled,
+
+                BackgroundColor = backgroundColor,
+                TitleFontCategory = titleFontCategory,
+                TitleAlignment = titleAlignment,
+                TitleFontWeight = titleFontWeight,
+                PostTitleColor = postTitleColor,
+                BodyFontCategory = bodyFontCategory,
+                HeaderBackgroundColor = headerBackgroundColor,
+                DividerColor = dividerColor,
+
+                ButtonCorners = buttonCorners,
+                ButtonStyle = buttonStyle,
+                ButtonColor = buttonColor,
+                LinkStyle = linkStyle,
+                LinkColor = linkColor,
+                ImageCorners = imageCorners,
+
+                FooterContent = footerContent,
+                UnsubscribeUrl = "#",
+                ManageSubscriptionUrl = "#",
+                CommentUrl = "#",
+            };
+
+            var html = await EmailService.RenderTemplateAsync("newsletter", model, cts.Token);
+            if (cts.IsCancellationRequested) return;
+
+            previewHtml = html;
+            lastPreviewKey = key;
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer render; ignore.
+        }
+        catch (Exception ex)
+        {
+            previewError = $"Failed to render preview: {ex.Message}";
+        }
+        finally
+        {
+            if (previewCts == cts)
+            {
+                previewLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    // Stable key derived from every form field that affects the rendered email,
+    // so OnAfterRenderAsync can detect when a re-render is needed.
+    private string BuildPreviewKey() => string.Join("|",
+        headerImage, showHeaderIcon, showHeaderTitle, showHeaderName, headerBackgroundColor,
+        titleFontCategory, titleAlignment, titleFontWeight, bodyFontCategory,
+        showFeatureImage, showExcerpt, showPostTitleSection, showCommentCta,
+        showSubscriptionDetails, showLatestPosts, showBadge, feedbackEnabled,
+        backgroundColor, postTitleColor, sectionTitleColor, dividerColor, buttonColor, linkColor,
+        buttonCorners, buttonStyle, linkStyle, imageCorners,
+        footerContent, name);
+
+    // Helpers for Razor-safe event handlers
+    private string HeaderColorValue => headerBackgroundColor == "transparent" ? "#ffffff" : headerBackgroundColor;
+    private void OnHeaderColorChanged(ChangeEventArgs e) => headerBackgroundColor = e.Value?.ToString() ?? "transparent";
+    private void ResetHeaderBackgroundColor() => headerBackgroundColor = "transparent";
+    private void ResetButtonColor() => buttonColor = "accent";
+    private void ResetLinkColor() => linkColor = "accent";
+
+    private static string? TrimOrNull(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

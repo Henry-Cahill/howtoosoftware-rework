@@ -1,0 +1,379 @@
+@page "/redirects/new"
+@page "/redirects/{RedirectId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IRedirectService RedirectService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Redirect" : $"Edit — {fromUrl}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="redirects" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Redirects
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="editor-topbar-actions d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Redirect</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the redirect from <strong>@fromUrl</strong>? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Redirect details</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label d-block">Type</label>
+                        <div class="btn-group" role="group" aria-label="Redirect type">
+                            <input type="radio" class="btn-check" name="redirectType" id="redirectTypeExact"
+                                   checked="@(!isRegex)" @onchange="OnExactSelected" />
+                            <label class="btn btn-sm btn-outline-secondary" for="redirectTypeExact">
+                                <i class="bi bi-dot me-1"></i>Exact
+                            </label>
+                            <input type="radio" class="btn-check" name="redirectType" id="redirectTypeRegex"
+                                   checked="@isRegex" @onchange="OnRegexSelected" />
+                            <label class="btn btn-sm btn-outline-secondary" for="redirectTypeRegex">
+                                <i class="bi bi-regex me-1"></i>Regex
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            @if (isRegex)
+                            {
+                                <span>The <strong>From</strong> field is a .NET regular expression. The <strong>To</strong> field can reference captured groups with <code>$1</code>, <code>$2</code>, etc.</span>
+                            }
+                            else
+                            {
+                                <span>The <strong>From</strong> path must match exactly.</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">From @(isRegex ? "pattern" : "URL")</label>
+                        <input type="text" class="form-control font-monospace"
+                               value="@fromUrl"
+                               @oninput="OnFromInput"
+                               @onchange="OnFromChange"
+                               placeholder="@(isRegex ? "^/old-blog/(.*)$" : "/old-path/")" />
+                        <div class="form-text">
+                            @if (isRegex)
+                            {
+                                <span>Regex pattern matched against the request path. Example: <code>^/old-blog/(.*)$</code></span>
+                            }
+                            else
+                            {
+                                <span>The source URL path to redirect from (e.g. <code>/old-post/</code>).</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">To URL</label>
+                        <input type="text" class="form-control font-monospace"
+                               value="@toUrl"
+                               @oninput="OnToInput"
+                               @onchange="OnToChange"
+                               placeholder="@(isRegex ? "/blog/$1" : "/new-path/ or https://example.com/page")" />
+                        <div class="form-text">
+                            @if (isRegex)
+                            {
+                                <span>Destination with backreferences. Example: <code>/blog/$1</code></span>
+                            }
+                            else
+                            {
+                                <span>The destination URL to redirect to. Can be a relative path or full URL.</span>
+                            }
+                        </div>
+                    </div>
+                    @if (!isRegex && chainInfo is not null)
+                    {
+                        <div class="alert alert-warning d-flex align-items-start gap-2 mb-0" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+                            <div class="flex-grow-1">
+                                @if (chainInfo.CycleDetected)
+                                {
+                                    <div><strong>Redirect cycle detected.</strong></div>
+                                    <div class="small">
+                                        The target <code>@chainInfo.IntermediateFrom</code> redirects to
+                                        <code>@chainInfo.IntermediateTo</code>, and following the chain leads back
+                                        to a previous hop. Saving this redirect would create an infinite loop.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div><strong>Redirect chain detected.</strong></div>
+                                    <div class="small">
+                                        <code>@chainInfo.IntermediateFrom</code> already redirects to
+                                        <code>@chainInfo.IntermediateTo</code>@(chainInfo.HopCount > 1 ? $" (chain of {chainInfo.HopCount} hops)" : "").
+                                        Consider redirecting directly to <code>@chainInfo.SuggestedTarget</code> to
+                                        avoid an extra hop.
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-warning mt-2"
+                                            @onclick="UseSuggestedTarget">
+                                        <i class="bi bi-arrow-right-short me-1"></i>Use <code class="text-dark">@chainInfo.SuggestedTarget</code>
+                                    </button>
+                                }
+                            </div>
+                            <button type="button" class="btn-close" aria-label="Dismiss"
+                                    @onclick="() => chainInfoDismissed = true"></button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && redirect is not null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Info</h6></div>
+                    <div class="card-body small text-muted">
+                        <div class="mb-1"><strong>ID:</strong> <span class="font-monospace">@redirect.Id</span></div>
+                        <div class="mb-1"><strong>Hits:</strong> <span class="font-monospace">@redirect.HitCount.ToString("N0")</span></div>
+                        <div class="mb-1"><strong>Created:</strong> @redirect.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                        @if (redirect.UpdatedAt.HasValue)
+                        {
+                            <div><strong>Updated:</strong> @redirect.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? RedirectId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(RedirectId);
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showDeleteConfirm;
+
+    private Redirect? redirect;
+
+    // Form fields
+    private string fromUrl = "";
+    private string toUrl = "";
+    private bool isRegex;
+
+    // Chain detection state
+    private RedirectChainInfo? chainInfo;
+    private bool chainInfoDismissed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            redirect = await RedirectService.GetByIdAsync(RedirectId!);
+            if (redirect is null)
+            {
+                Navigation.NavigateTo("redirects");
+                return;
+            }
+
+            fromUrl = redirect.From;
+            toUrl = redirect.To;
+            isRegex = redirect.IsRegex;
+
+            await DetectChainAsync();
+        }
+
+        loaded = true;
+    }
+
+    private void OnFromInput(ChangeEventArgs e)
+    {
+        fromUrl = e.Value?.ToString() ?? "";
+    }
+
+    private async Task OnFromChange(ChangeEventArgs e)
+    {
+        fromUrl = e.Value?.ToString() ?? "";
+        await DetectChainAsync();
+    }
+
+    private void OnToInput(ChangeEventArgs e)
+    {
+        toUrl = e.Value?.ToString() ?? "";
+    }
+
+    private async Task OnToChange(ChangeEventArgs e)
+    {
+        toUrl = e.Value?.ToString() ?? "";
+        await DetectChainAsync();
+    }
+
+    private async Task OnExactSelected()
+    {
+        isRegex = false;
+        await DetectChainAsync();
+    }
+
+    private Task OnRegexSelected()
+    {
+        isRegex = true;
+        chainInfo = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task DetectChainAsync()
+    {
+        if (isRegex || string.IsNullOrWhiteSpace(fromUrl) || string.IsNullOrWhiteSpace(toUrl))
+        {
+            chainInfo = null;
+            return;
+        }
+
+        // Don't re-show after the user dismisses, until they change inputs
+        // such that the suggested target differs.
+        var existingSuggested = chainInfo?.SuggestedTarget;
+        try
+        {
+            chainInfo = await RedirectService.DetectChainAsync(fromUrl, toUrl, RedirectId);
+            if (chainInfoDismissed && chainInfo is not null && chainInfo.SuggestedTarget != existingSuggested)
+                chainInfoDismissed = false;
+            if (chainInfoDismissed)
+                chainInfo = null;
+        }
+        catch
+        {
+            // Chain detection is advisory — never block save flow on detection errors.
+            chainInfo = null;
+        }
+    }
+
+    private void UseSuggestedTarget()
+    {
+        if (chainInfo is null) return;
+        toUrl = chainInfo.SuggestedTarget;
+        chainInfo = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(fromUrl))
+        {
+            statusMessage = "From URL is required.";
+            isError = true;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(toUrl))
+        {
+            statusMessage = "To URL is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+
+        try
+        {
+            if (IsNew)
+            {
+                var created = await RedirectService.CreateAsync(new CreateRedirectRequest
+                {
+                    From = fromUrl,
+                    To = toUrl,
+                    IsRegex = isRegex,
+                });
+
+                Navigation.NavigateTo($"redirects/{created.Id}/edit");
+            }
+            else
+            {
+                await RedirectService.UpdateAsync(RedirectId!, new UpdateRedirectRequest
+                {
+                    From = fromUrl,
+                    To = toUrl,
+                    IsRegex = isRegex,
+                });
+
+                statusMessage = "Saved";
+                isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        try
+        {
+            await RedirectService.DeleteAsync(RedirectId!);
+            Navigation.NavigateTo("redirects");
+        }
+        catch (Exception ex)
+        {
+            showDeleteConfirm = false;
+            statusMessage = ex.Message;
+            isError = true;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

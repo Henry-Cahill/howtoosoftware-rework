@@ -1,0 +1,1322 @@
+@page "/analytics"
+@rendermode InteractiveServer
+@using System.Text
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using HowToSoftware.Core.Interfaces
+@using HowToSoftware.Admin.Services
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IAnalyticsDashboardService AnalyticsService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Analytics — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Analytics</h1>
+    <div class="d-flex align-items-center gap-2">
+        @if (liveVisitors is not null)
+        {
+            <span class="badge bg-success fs-6">
+                <i class="bi bi-circle-fill me-1" style="font-size:0.5rem;vertical-align:middle"></i>
+                @liveVisitors live
+            </span>
+        }
+        <select class="form-select form-select-sm" style="width:auto" @onchange="OnRangePresetChanged">
+            <option value="7" selected="@(rangeDays == 7)">Last 7 days</option>
+            <option value="14" selected="@(rangeDays == 14)">Last 14 days</option>
+            <option value="30" selected="@(rangeDays == 30)">Last 30 days</option>
+            <option value="90" selected="@(rangeDays == 90)">Last 90 days</option>
+            <option value="0" selected="@(rangeDays == 0)">Custom</option>
+        </select>
+        @if (rangeDays == 0)
+        {
+            <input type="date" class="form-control form-control-sm" style="width:auto"
+                   value="@dateFrom.ToString("yyyy-MM-dd")" @onchange="OnFromChanged" />
+            <span class="text-muted">to</span>
+            <input type="date" class="form-control form-control-sm" style="width:auto"
+                   value="@dateTo.ToString("yyyy-MM-dd")" @onchange="OnToChanged" />
+        }
+        <div class="form-check form-switch ms-2 mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="compareToggle"
+                   checked="@compareEnabled" @onchange="OnCompareToggled" />
+            <label class="form-check-label" for="compareToggle">Compare</label>
+        </div>
+        @if (compareEnabled)
+        {
+            <select class="form-select form-select-sm" style="width:auto" @onchange="OnCompareModeChanged">
+                <option value="previous" selected="@(compareMode == "previous")">vs previous period</option>
+                <option value="yearago" selected="@(compareMode == "yearago")">vs same period last year</option>
+                <option value="custom" selected="@(compareMode == "custom")">Custom</option>
+            </select>
+            @if (compareMode == "custom")
+            {
+                <input type="date" class="form-control form-control-sm" style="width:auto"
+                       value="@compareDateFrom.ToString("yyyy-MM-dd")" @onchange="OnCompareFromChanged" />
+                <span class="text-muted">to</span>
+                <input type="date" class="form-control form-control-sm" style="width:auto"
+                       value="@compareDateTo.AddDays(-1).ToString("yyyy-MM-dd")" @onchange="OnCompareToChanged" />
+            }
+            else
+            {
+                <small class="text-muted">
+                    @compareDateFrom.ToString("MMM d") – @compareDateTo.AddDays(-1).ToString("MMM d, yyyy")
+                </small>
+            }
+        }
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                @onclick="ExportCsvAsync" disabled="@(exporting || loading)"
+                title="Download KPIs, top pages, sources, and countries for the selected range as a CSV file">
+            @if (exporting)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                <span>Exporting…</span>
+            }
+            else
+            {
+                <i class="bi bi-download me-1"></i>
+                <span>Export CSV</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+    </div>
+}
+else if (loading)
+{
+    <p class="text-muted">Loading analytics…</p>
+}
+else if (kpi is not null)
+{
+    <!-- KPI Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl">
+            <div class="card kpi-card">
+                <div class="card-body">
+                    <div class="kpi-icon text-primary"><i class="bi bi-person-fill"></i></div>
+                    <div class="kpi-value">@kpi.Visitors.ToString("N0")</div>
+                    <div class="kpi-label">Unique Visitors</div>
+                    @if (compareEnabled && kpiCompare is not null)
+                    {
+                        @RenderDelta(kpi.Visitors, kpiCompare.Visitors)
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl">
+            <div class="card kpi-card">
+                <div class="card-body">
+                    <div class="kpi-icon text-success"><i class="bi bi-arrow-repeat"></i></div>
+                    <div class="kpi-value">@kpi.Visits.ToString("N0")</div>
+                    <div class="kpi-label">Visits</div>
+                    @if (compareEnabled && kpiCompare is not null)
+                    {
+                        @RenderDelta(kpi.Visits, kpiCompare.Visits)
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl">
+            <div class="card kpi-card">
+                <div class="card-body">
+                    <div class="kpi-icon text-info"><i class="bi bi-eye-fill"></i></div>
+                    <div class="kpi-value">@kpi.Pageviews.ToString("N0")</div>
+                    <div class="kpi-label">Pageviews</div>
+                    @if (compareEnabled && kpiCompare is not null)
+                    {
+                        @RenderDelta(kpi.Pageviews, kpiCompare.Pageviews)
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl">
+            <div class="card kpi-card">
+                <div class="card-body">
+                    <div class="kpi-icon text-warning"><i class="bi bi-box-arrow-left"></i></div>
+                    <div class="kpi-value">@kpi.BounceRatePercent.ToString("F1")%</div>
+                    <div class="kpi-label">Bounce Rate</div>
+                    @if (compareEnabled && kpiCompare is not null)
+                    {
+                        @RenderDelta((double)kpi.BounceRatePercent, (double)kpiCompare.BounceRatePercent, lowerIsBetter: true, suffix: "pp", absolute: true)
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl">
+            <div class="card kpi-card">
+                <div class="card-body">
+                    <div class="kpi-icon text-secondary"><i class="bi bi-clock-fill"></i></div>
+                    <div class="kpi-value">@FormatDuration(kpi.AvgSessionDurationSeconds)</div>
+                    <div class="kpi-label">Avg. Session</div>
+                    @if (compareEnabled && kpiCompare is not null)
+                    {
+                        @RenderDelta((double)kpi.AvgSessionDurationSeconds, (double)kpiCompare.AvgSessionDurationSeconds)
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Feed: Recent Pageviews -->
+    @if (recentPageviews is not null && recentPageviews.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Live Feed — Recent Pageviews</strong>
+                <span class="badge bg-success">
+                    <i class="bi bi-circle-fill me-1" style="font-size:0.5rem;vertical-align:middle"></i>
+                    @(liveVisitors?.ToString("N0") ?? "0") active
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:320px;overflow-y:auto">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="sticky-top bg-dark">
+                            <tr>
+                                <th>Page</th>
+                                <th>Time</th>
+                                <th>Country</th>
+                                <th>Device</th>
+                                <th>Referrer</th>
+                                <th>Member</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pv in recentPageviews)
+                            {
+                                <tr>
+                                    <td class="text-truncate" style="max-width:250px" title="@pv.PagePath">@pv.PagePath</td>
+                                    <td class="text-nowrap">@pv.Timestamp.ToString("HH:mm:ss")</td>
+                                    <td>@(pv.Country ?? "—")</td>
+                                    <td>@(pv.Device ?? "—")</td>
+                                    <td class="text-truncate" style="max-width:150px" title="@pv.Referrer">@(pv.Referrer ?? "(direct)")</td>
+                                    <td>@(pv.MemberUuid is not null ? "✓" : "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Traffic Over Time Chart -->
+    <div class="card mb-4">
+        <div class="card-header"><strong>@((dateTo - dateFrom).TotalDays <= 7 ? "Hourly Traffic" : "Daily Traffic")</strong></div>
+        <div class="card-body" style="height:300px">
+            <canvas id="chartHourly"></canvas>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <!-- Top Pages / Content Performance -->
+        <div class="col-12">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <strong>Content Performance — Top Pages</strong>
+                    <small class="text-muted">Click a column header to sort</small>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Page / Post</th>
+                                    <th>Author</th>
+                                    <th>Published</th>
+                                    <th class="text-end sortable" role="button" @onclick="@(() => SetTopPagesSort("views"))">
+                                        Views @(SortIcon("views"))
+                                    </th>
+                                    <th class="text-end sortable" role="button" @onclick="@(() => SetTopPagesSort("visitors"))">
+                                        Visitors @(SortIcon("visitors"))
+                                    </th>
+                                    <th class="text-end sortable" role="button" @onclick="@(() => SetTopPagesSort("time"))"
+                                        title="Average time-on-page — engagement rate proxy">
+                                        Avg Time @(SortIcon("time"))
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (topPages is not null)
+                                {
+                                    @foreach (var p in SortedTopPages)
+                                    {
+                                        <tr>
+                                            <td style="max-width:380px">
+                                                @{
+                                                    var drillUrl = $"/analytics/page?path={Uri.EscapeDataString(p.PagePath)}&from={dateFrom:yyyy-MM-dd}&to={dateTo.AddDays(-1):yyyy-MM-dd}";
+                                                }
+                                                @if (!string.IsNullOrEmpty(p.PostTitle))
+                                                {
+                                                    <a href="@drillUrl" class="text-decoration-none">
+                                                        <div class="text-truncate fw-semibold" title="@p.PostTitle">@p.PostTitle</div>
+                                                        <div class="text-muted small text-truncate" title="@p.PagePath">@p.PagePath</div>
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <a href="@drillUrl" class="text-decoration-none">
+                                                        <div class="text-truncate" title="@p.PagePath">@p.PagePath</div>
+                                                    </a>
+                                                }
+                                            </td>
+                                            <td>
+                                                @(string.IsNullOrEmpty(p.AuthorName) ? (MarkupString)"<span class=\"text-muted\">—</span>" : (MarkupString)System.Net.WebUtility.HtmlEncode(p.AuthorName!))
+                                            </td>
+                                            <td>
+                                                @(p.PublishedAt is { } pub
+                                                    ? (MarkupString)pub.ToLocalTime().ToString("yyyy-MM-dd")
+                                                    : (MarkupString)"<span class=\"text-muted\">—</span>")
+                                            </td>
+                                            <td class="text-end">@p.Pageviews.ToString("N0")</td>
+                                            <td class="text-end">@p.UniqueVisitors.ToString("N0")</td>
+                                            <td class="text-end">
+                                                @(p.AvgTimeOnPageSeconds is { } avg
+                                                    ? (MarkupString)FormatDuration(avg)
+                                                    : (MarkupString)"<span class=\"text-muted\">—</span>")
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <!-- Top Sources -->
+        <div class="col-12">
+            <div class="card h-100">
+                <div class="card-header"><strong>Top Sources</strong></div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr><th>Source</th><th class="text-end">Visits</th><th class="text-end">Visitors</th></tr>
+                            </thead>
+                            <tbody>
+                                @if (topSources is not null)
+                                {
+                                    @foreach (var s in topSources)
+                                    {
+                                        <tr>
+                                            <td class="text-truncate" style="max-width:300px" title="@s.Source">@s.Source</td>
+                                            <td class="text-end">@s.Visits.ToString("N0")</td>
+                                            <td class="text-end">@s.UniqueVisitors.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <!-- Devices Doughnut -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><strong>Devices</strong></div>
+                <div class="card-body d-flex align-items-center justify-content-center" style="height:300px">
+                    <canvas id="chartDevices"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Countries Bar -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><strong>Countries</strong></div>
+                <div class="card-body" style="height:300px">
+                    <canvas id="chartCountries"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- World Visitor Map -->
+    <div class="card mb-4">
+        <div class="card-header"><strong>Visitors by Country — World Map</strong></div>
+        <div class="card-body" style="height:420px">
+            <canvas id="chartCountryMap"></canvas>
+        </div>
+    </div>
+
+    <!-- UTM Campaigns -->
+    @if (utmCampaigns is not null && utmCampaigns.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header"><strong>UTM Campaigns</strong></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr><th>Campaign</th><th>Source</th><th>Medium</th><th class="text-end">Signups</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var u in utmCampaigns)
+                            {
+                                <tr>
+                                    <td>@u.Campaign</td>
+                                    <td>@u.Source</td>
+                                    <td>@u.Medium</td>
+                                    <td class="text-end">@u.Count.ToString("N0")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Search Terms (ANAL.7) -->
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <strong>Search Terms</strong>
+            <span class="text-muted small">Top queries from search-engine referrers</span>
+        </div>
+        <div class="card-body p-0">
+            @if (searchTerms is null || searchTerms.Count == 0)
+            {
+                <div class="p-3 text-muted small">
+                    No search-engine referral query terms in this date range.
+                    Most modern search engines (notably Google over HTTPS) strip
+                    the <code>q=</code> parameter from outbound referrers, so this
+                    widget will populate sparsely. Privacy-respecting engines
+                    such as DuckDuckGo and Brave Search omit it entirely.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Term</th>
+                                <th>Engine</th>
+                                <th class="text-end">Visits</th>
+                                <th class="text-end">Visitors</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in searchTerms)
+                            {
+                                <tr>
+                                    <td class="text-truncate" style="max-width:380px" title="@s.Term">@s.Term</td>
+                                    <td><span class="badge text-bg-secondary">@s.Engine</span></td>
+                                    <td class="text-end">@s.Visits.ToString("N0")</td>
+                                    <td class="text-end">@s.UniqueVisitors.ToString("N0")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Post Engagement (Member Activity Correlation) -->
+    @if (postEngagement is not null && postEngagement.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header"><strong>Post Engagement — Member vs Anonymous</strong></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Post</th>
+                                <th class="text-end">Total Views</th>
+                                <th class="text-end">Member Views</th>
+                                <th class="text-end">Anonymous Views</th>
+                                <th class="text-end">Unique Members</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pe in postEngagement)
+                            {
+                                <tr>
+                                    <td class="text-truncate" style="max-width:300px" title="@pe.PostTitle">@pe.PostTitle</td>
+                                    <td class="text-end">@pe.TotalViews.ToString("N0")</td>
+                                    <td class="text-end">@pe.MemberViews.ToString("N0")</td>
+                                    <td class="text-end">@pe.AnonymousViews.ToString("N0")</td>
+                                    <td class="text-end">@pe.UniqueMemberViewers.ToString("N0")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Member Engagement -->
+    @if (memberEngagement is not null && memberEngagement.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header"><strong>Most Active Members</strong></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Member</th>
+                                <th>Status</th>
+                                <th class="text-end">Pageviews</th>
+                                <th class="text-end">Sessions</th>
+                                <th class="text-end">Posts Read</th>
+                                <th>Last Seen</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var me in memberEngagement)
+                            {
+                                <tr>
+                                    <td>
+                                        <div>@(me.MemberName ?? "(unnamed)")</div>
+                                        @if (me.MemberEmail is not null)
+                                        {
+                                            <small class="text-muted">@me.MemberEmail</small>
+                                        }
+                                    </td>
+                                    <td><span class="badge bg-@(me.MemberStatus == "paid" ? "success" : "secondary")">@me.MemberStatus</span></td>
+                                    <td class="text-end">@me.Pageviews.ToString("N0")</td>
+                                    <td class="text-end">@me.Sessions.ToString("N0")</td>
+                                    <td class="text-end">@me.PostsRead.ToString("N0")</td>
+                                    <td>@(me.LastSeenAt?.ToString("MMM d, yyyy") ?? "—")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ShowMemberActivity(me.MemberUuid)">
+                                            <i class="bi bi-list-ul"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Member Post Activity Modal -->
+    @if (memberPostActivity is not null)
+    {
+        <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Member Reading Activity</h5>
+                        <button type="button" class="btn-close" @onclick="CloseMemberActivity"></button>
+                    </div>
+                    <div class="modal-body p-0">
+                        @if (memberPostActivity.Count == 0)
+                        {
+                            <p class="p-3 text-muted">No post activity found for this member in the selected date range.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr><th>Post</th><th class="text-end">Views</th><th>Last Viewed</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var a in memberPostActivity)
+                                        {
+                                            <tr>
+                                                <td class="text-truncate" style="max-width:350px" title="@a.PostTitle">@a.PostTitle</td>
+                                                <td class="text-end">@a.Views.ToString("N0")</td>
+                                                <td>@a.LastViewed.ToString("MMM d, yyyy h:mm tt")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseMemberActivity">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        <!-- Browsers Doughnut -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><strong>Browsers</strong></div>
+                <div class="card-body d-flex align-items-center justify-content-center" style="height:300px">
+                    <canvas id="chartBrowsers"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Operating Systems Doughnut -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><strong>Operating Systems</strong></div>
+                <div class="card-body d-flex align-items-center justify-content-center" style="height:300px">
+                    <canvas id="chartOs"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Referrers Table -->
+    @if (referrers is not null && referrers.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header"><strong>Top Referrers</strong></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr><th>Referrer</th><th class="text-end">Visits</th><th class="text-end">Visitors</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in referrers)
+                            {
+                                <tr>
+                                    <td class="text-truncate" style="max-width:400px" title="@r.Referrer">@r.Referrer</td>
+                                    <td class="text-end">@r.Visits.ToString("N0")</td>
+                                    <td class="text-end">@r.UniqueVisitors.ToString("N0")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private int rangeDays = 30;
+    private DateTime dateFrom;
+    private DateTime dateTo;
+    private bool loading = true;
+    private string? errorMessage;
+
+    private AnalyticsKpiSummary? kpi;
+    private List<TopPageRow>? topPages;
+    private List<TopSourceRow>? topSources;
+    private List<DeviceRow>? devices;
+    private List<BrowserRow>? browsers;
+    private List<OsRow>? operatingSystems;
+    private List<ReferrerRow>? referrers;
+    private List<CountryRow>? countries;
+    private List<TrafficTimeSeriesRow>? trafficTimeSeries;
+    private List<UtmCampaignRow>? utmCampaigns;
+    private List<SearchTermRow>? searchTerms;
+    private List<PostEngagementRow>? postEngagement;
+    private List<MemberEngagementRow>? memberEngagement;
+    private List<MemberPostActivityRow>? memberPostActivity;
+    private List<RecentPageviewDto>? recentPageviews;
+
+    // Top Pages sorting (client-side)
+    private string topPagesSortBy = "views"; // "views" | "visitors" | "time"
+    private bool topPagesSortDesc = true;
+
+    private IEnumerable<TopPageRow> SortedTopPages =>
+        topPages is null
+            ? Enumerable.Empty<TopPageRow>()
+            : topPagesSortBy switch
+            {
+                "visitors" => topPagesSortDesc
+                    ? topPages.OrderByDescending(p => p.UniqueVisitors)
+                    : topPages.OrderBy(p => p.UniqueVisitors),
+                "time" => topPagesSortDesc
+                    ? topPages.OrderByDescending(p => p.AvgTimeOnPageSeconds ?? -1m)
+                    : topPages.OrderBy(p => p.AvgTimeOnPageSeconds ?? decimal.MaxValue),
+                _ => topPagesSortDesc
+                    ? topPages.OrderByDescending(p => p.Pageviews)
+                    : topPages.OrderBy(p => p.Pageviews),
+            };
+
+    private void SetTopPagesSort(string column)
+    {
+        if (topPagesSortBy == column)
+        {
+            topPagesSortDesc = !topPagesSortDesc;
+        }
+        else
+        {
+            topPagesSortBy = column;
+            topPagesSortDesc = true;
+        }
+    }
+
+    private MarkupString SortIcon(string column)
+    {
+        if (topPagesSortBy != column)
+            return (MarkupString)"<span class=\"text-muted small\">↕</span>";
+        return (MarkupString)(topPagesSortDesc ? "<span class=\"small\">▼</span>" : "<span class=\"small\">▲</span>");
+    }
+
+    private int? liveVisitors;
+    private bool exporting;
+
+    // Comparison mode
+    private bool compareEnabled;
+    private string compareMode = "previous"; // "previous" | "yearago" | "custom"
+    private DateTime compareDateFrom;
+    private DateTime compareDateTo;
+    private AnalyticsKpiSummary? kpiCompare;
+    private List<TrafficTimeSeriesRow>? trafficTimeSeriesCompare;
+
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        dateTo = DateTime.UtcNow.Date.AddDays(1);
+        dateFrom = dateTo.AddDays(-rangeDays);
+        RecomputeCompareDates();
+
+        try
+        {
+            // Load data directly during prerender (no SignalR available yet)
+            kpi = await AnalyticsService.GetKpiSummaryAsync(dateFrom, dateTo);
+            topPages = await AnalyticsService.GetTopPagesAsync(dateFrom, dateTo);
+            topSources = await AnalyticsService.GetTopSourcesAsync(dateFrom, dateTo);
+            devices = await AnalyticsService.GetDeviceBreakdownAsync(dateFrom, dateTo);
+            browsers = await AnalyticsService.GetBrowserBreakdownAsync(dateFrom, dateTo);
+            operatingSystems = await AnalyticsService.GetOsBreakdownAsync(dateFrom, dateTo);
+            referrers = await AnalyticsService.GetReferrerBreakdownAsync(dateFrom, dateTo);
+            countries = await AnalyticsService.GetCountryBreakdownAsync(dateFrom, dateTo);
+            trafficTimeSeries = await AnalyticsService.GetTrafficTimeSeriesAsync(dateFrom, dateTo);
+            utmCampaigns = await AnalyticsService.GetUtmCampaignsAsync(dateFrom, dateTo);
+            searchTerms = await AnalyticsService.GetSearchTermsAsync(dateFrom, dateTo);
+            postEngagement = await AnalyticsService.GetPostEngagementAsync(dateFrom, dateTo);
+            memberEngagement = await AnalyticsService.GetMemberEngagementAsync(dateFrom, dateTo);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load analytics: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Start SignalR in background — don't block the render cycle
+            _ = ConnectHubAsync();
+        }
+
+        if (!loading && trafficTimeSeries is not null)
+        {
+            try
+            {
+                await RenderCharts();
+            }
+            catch (Exception)
+            {
+                // Chart rendering is non-critical — don't crash the circuit
+            }
+        }
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        StateHasChanged();
+
+        if (hubConnection?.State == HubConnectionState.Connected)
+        {
+            await hubConnection.SendAsync("RequestDashboard", dateFrom, dateTo);
+        }
+        else
+        {
+            // Fallback: load directly
+            try
+            {
+                kpi = await AnalyticsService.GetKpiSummaryAsync(dateFrom, dateTo);
+                topPages = await AnalyticsService.GetTopPagesAsync(dateFrom, dateTo);
+                topSources = await AnalyticsService.GetTopSourcesAsync(dateFrom, dateTo);
+                devices = await AnalyticsService.GetDeviceBreakdownAsync(dateFrom, dateTo);
+                browsers = await AnalyticsService.GetBrowserBreakdownAsync(dateFrom, dateTo);
+                operatingSystems = await AnalyticsService.GetOsBreakdownAsync(dateFrom, dateTo);
+                referrers = await AnalyticsService.GetReferrerBreakdownAsync(dateFrom, dateTo);
+                countries = await AnalyticsService.GetCountryBreakdownAsync(dateFrom, dateTo);
+                trafficTimeSeries = await AnalyticsService.GetTrafficTimeSeriesAsync(dateFrom, dateTo);
+                utmCampaigns = await AnalyticsService.GetUtmCampaignsAsync(dateFrom, dateTo);
+                searchTerms = await AnalyticsService.GetSearchTermsAsync(dateFrom, dateTo);
+                postEngagement = await AnalyticsService.GetPostEngagementAsync(dateFrom, dateTo);
+                memberEngagement = await AnalyticsService.GetMemberEngagementAsync(dateFrom, dateTo);
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Failed to load analytics: {ex.Message}";
+            }
+            loading = false;
+        }
+
+        await LoadComparisonAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadComparisonAsync()
+    {
+        if (!compareEnabled)
+        {
+            kpiCompare = null;
+            trafficTimeSeriesCompare = null;
+            return;
+        }
+
+        try
+        {
+            kpiCompare = await AnalyticsService.GetKpiSummaryAsync(compareDateFrom, compareDateTo);
+            trafficTimeSeriesCompare = await AnalyticsService.GetTrafficTimeSeriesAsync(compareDateFrom, compareDateTo);
+        }
+        catch (Exception ex)
+        {
+            // Comparison is non-critical — surface a soft error but don't break the page
+            errorMessage = $"Failed to load comparison data: {ex.Message}";
+            kpiCompare = null;
+            trafficTimeSeriesCompare = null;
+        }
+    }
+
+    private void RecomputeCompareDates()
+    {
+        if (compareMode == "custom" && compareDateFrom != default && compareDateTo != default)
+        {
+            return; // user-driven dates preserved
+        }
+
+        var span = dateTo - dateFrom;
+        if (compareMode == "yearago")
+        {
+            compareDateFrom = dateFrom.AddYears(-1);
+            compareDateTo = dateTo.AddYears(-1);
+        }
+        else
+        {
+            // "previous" — equal-length window ending the day before dateFrom
+            compareDateTo = dateFrom;
+            compareDateFrom = compareDateTo - span;
+        }
+    }
+
+    private async Task RenderCharts()
+    {
+        // Traffic time-series line chart
+        if (trafficTimeSeries is not null)
+        {
+            var labels = trafficTimeSeries.Select(h => h.Label).ToArray();
+            var datasetList = new List<object>
+            {
+                new {
+                    label = "Pageviews",
+                    data = trafficTimeSeries.Select(h => (double)h.Pageviews).ToArray(),
+                    borderColor = "rgba(99,179,237,1)",
+                    backgroundColor = "rgba(99,179,237,0.1)",
+                    fill = true,
+                    tension = 0.3,
+                    borderDash = Array.Empty<int>()
+                },
+                new {
+                    label = "Visitors",
+                    data = trafficTimeSeries.Select(h => (double)h.UniqueVisitors).ToArray(),
+                    borderColor = "rgba(72,187,120,1)",
+                    backgroundColor = "rgba(72,187,120,0.1)",
+                    fill = true,
+                    tension = 0.3,
+                    borderDash = Array.Empty<int>()
+                },
+                new {
+                    label = "Member pageviews",
+                    data = trafficTimeSeries.Select(h => (double)h.MemberPageviews).ToArray(),
+                    borderColor = "rgba(237,137,54,1)",
+                    backgroundColor = "rgba(237,137,54,0.1)",
+                    fill = false,
+                    tension = 0.3,
+                    borderDash = Array.Empty<int>()
+                }
+            };
+
+            if (compareEnabled && trafficTimeSeriesCompare is not null && trafficTimeSeriesCompare.Count > 0)
+            {
+                // Align comparison series to current labels by index (both series share a uniform bucket grid).
+                var pvCompare = new double?[labels.Length];
+                var uvCompare = new double?[labels.Length];
+                for (var i = 0; i < labels.Length && i < trafficTimeSeriesCompare.Count; i++)
+                {
+                    pvCompare[i] = trafficTimeSeriesCompare[i].Pageviews;
+                    uvCompare[i] = trafficTimeSeriesCompare[i].UniqueVisitors;
+                }
+                datasetList.Add(new {
+                    label = "Pageviews (compare)",
+                    data = pvCompare,
+                    borderColor = "rgba(99,179,237,0.7)",
+                    backgroundColor = "rgba(0,0,0,0)",
+                    fill = false,
+                    tension = 0.3,
+                    borderDash = new[] { 6, 4 }
+                });
+                datasetList.Add(new {
+                    label = "Visitors (compare)",
+                    data = uvCompare,
+                    borderColor = "rgba(72,187,120,0.7)",
+                    backgroundColor = "rgba(0,0,0,0)",
+                    fill = false,
+                    tension = 0.3,
+                    borderDash = new[] { 6, 4 }
+                });
+            }
+
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartHourly", "line", labels, datasetList.ToArray(), (object?)null);
+        }
+
+        // Devices doughnut
+        if (devices is not null && devices.Count > 0)
+        {
+            var labels = devices.Select(d => d.Device).ToArray();
+            var datasets = new[]
+            {
+                new {
+                    data = devices.Select(d => d.Sessions).ToArray(),
+                    backgroundColor = new[] { "#63b3ed", "#48bb78", "#ecc94b", "#fc8181", "#b794f4", "#f687b3" }
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartDevices", "doughnut", labels, datasets, (object?)null);
+        }
+
+        // Countries bar chart
+        if (countries is not null && countries.Count > 0)
+        {
+            var top10 = countries.Take(10).ToList();
+            var labels = top10.Select(c => c.Country).ToArray();
+            var datasets = new[]
+            {
+                new {
+                    label = "Visitors",
+                    data = top10.Select(c => c.Visitors).ToArray(),
+                    backgroundColor = "rgba(99,179,237,0.7)",
+                    borderColor = "rgba(99,179,237,1)",
+                    borderWidth = 1
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartCountries", "bar", labels, datasets,
+                new { indexAxis = "y" });
+        }
+
+        // World visitor map (choropleth)
+        if (countries is not null && countries.Count > 0)
+        {
+            var mapData = countries
+                .Where(c => !string.IsNullOrWhiteSpace(c.Country)
+                            && c.Country.Length == 2
+                            && c.Country.All(char.IsLetter))
+                .Select(c => new { code = c.Country!.ToUpperInvariant(), visitors = c.Visitors })
+                .ToArray();
+            await JS.InvokeVoidAsync("analyticsMap.render", "chartCountryMap", mapData);
+        }
+
+        // Browsers doughnut
+        if (browsers is not null && browsers.Count > 0)
+        {
+            var labels = browsers.Select(b => b.Browser).ToArray();
+            var datasets = new[]
+            {
+                new {
+                    data = browsers.Select(b => b.Sessions).ToArray(),
+                    backgroundColor = new[] { "#63b3ed", "#48bb78", "#ecc94b", "#fc8181", "#b794f4", "#f687b3", "#f6ad55", "#68d391", "#76e4f7", "#cbd5e0" }
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartBrowsers", "doughnut", labels, datasets, (object?)null);
+        }
+
+        // OS doughnut
+        if (operatingSystems is not null && operatingSystems.Count > 0)
+        {
+            var labels = operatingSystems.Select(o => o.Os).ToArray();
+            var datasets = new[]
+            {
+                new {
+                    data = operatingSystems.Select(o => o.Sessions).ToArray(),
+                    backgroundColor = new[] { "#63b3ed", "#48bb78", "#ecc94b", "#fc8181", "#b794f4", "#f687b3", "#f6ad55", "#68d391", "#76e4f7", "#cbd5e0" }
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartOs", "doughnut", labels, datasets, (object?)null);
+        }
+    }
+
+    private async Task OnRangePresetChanged(ChangeEventArgs e)
+    {
+        rangeDays = int.Parse(e.Value?.ToString() ?? "30");
+        if (rangeDays > 0)
+        {
+            dateTo = DateTime.UtcNow.Date.AddDays(1);
+            dateFrom = dateTo.AddDays(-rangeDays);
+            if (compareMode != "custom") RecomputeCompareDates();
+            await LoadData();
+        }
+    }
+
+    private async Task OnFromChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            dateFrom = d;
+            if (compareMode != "custom") RecomputeCompareDates();
+            await LoadData();
+        }
+    }
+
+    private async Task OnToChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            dateTo = d.AddDays(1);
+            if (compareMode != "custom") RecomputeCompareDates();
+            await LoadData();
+        }
+    }
+
+    private async Task OnCompareToggled(ChangeEventArgs e)
+    {
+        compareEnabled = e.Value is bool b && b;
+        if (compareEnabled) RecomputeCompareDates();
+        await LoadComparisonAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnCompareModeChanged(ChangeEventArgs e)
+    {
+        compareMode = e.Value?.ToString() ?? "previous";
+        if (compareMode != "custom")
+        {
+            // Force recompute even if dates were previously set
+            compareDateFrom = default;
+            compareDateTo = default;
+            RecomputeCompareDates();
+        }
+        else if (compareDateFrom == default || compareDateTo == default)
+        {
+            // Seed custom range with the current "previous period" defaults
+            var span = dateTo - dateFrom;
+            compareDateTo = dateFrom;
+            compareDateFrom = compareDateTo - span;
+        }
+        await LoadComparisonAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnCompareFromChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            compareDateFrom = d;
+            await LoadComparisonAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnCompareToChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            compareDateTo = d.AddDays(1);
+            await LoadComparisonAsync();
+            StateHasChanged();
+        }
+    }
+
+    private static RenderFragment RenderDelta(double current, double previous, bool lowerIsBetter = false, string suffix = "%", bool absolute = false)
+        => builder =>
+        {
+            string text;
+            string colorClass;
+            string icon;
+            if (previous == 0)
+            {
+                if (current == 0)
+                {
+                    text = "no change";
+                    colorClass = "text-muted";
+                    icon = "bi-dash";
+                }
+                else
+                {
+                    text = "new";
+                    colorClass = lowerIsBetter ? "text-danger" : "text-success";
+                    icon = "bi-arrow-up";
+                }
+            }
+            else
+            {
+                double delta;
+                if (absolute)
+                {
+                    delta = current - previous; // percentage points
+                }
+                else
+                {
+                    delta = (current - previous) / Math.Abs(previous) * 100.0;
+                }
+                var up = delta > 0;
+                var down = delta < 0;
+                var positive = up ? !lowerIsBetter : (down ? lowerIsBetter : false);
+                colorClass = up || down ? (positive ? "text-success" : "text-danger") : "text-muted";
+                icon = up ? "bi-arrow-up" : (down ? "bi-arrow-down" : "bi-dash");
+                text = $"{(up ? "+" : "")}{delta.ToString("F1")}{suffix}";
+            }
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", $"kpi-delta small mt-1 {colorClass}");
+            builder.OpenElement(2, "i");
+            builder.AddAttribute(3, "class", $"bi {icon} me-1");
+            builder.CloseElement();
+            builder.AddContent(4, text);
+            builder.AddContent(5, " vs prior");
+            builder.CloseElement();
+        };
+
+    private static string FormatDuration(decimal seconds)
+    {
+        var ts = TimeSpan.FromSeconds((double)seconds);
+        return ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}h {ts.Minutes}m"
+            : $"{ts.Minutes}m {ts.Seconds}s";
+    }
+
+    private async Task ShowMemberActivity(string memberUuid)
+    {
+        if (hubConnection?.State == HubConnectionState.Connected)
+        {
+            await hubConnection.SendAsync("RequestMemberPostActivity", memberUuid, dateFrom, dateTo);
+        }
+        else
+        {
+            memberPostActivity = await AnalyticsService.GetMemberPostActivityAsync(memberUuid, dateFrom, dateTo);
+            StateHasChanged();
+        }
+    }
+
+    private void CloseMemberActivity()
+    {
+        memberPostActivity = null;
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        try
+        {
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/analytics"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            hubConnection.On<AnalyticsDashboardPayload>("ReceiveDashboard", async payload =>
+            {
+                kpi = payload.Kpi;
+                topPages = payload.TopPages;
+                topSources = payload.TopSources;
+                devices = payload.Devices;
+                browsers = payload.Browsers;
+                operatingSystems = payload.OperatingSystems;
+                referrers = payload.Referrers;
+                countries = payload.Countries;
+                trafficTimeSeries = payload.TrafficTimeSeries;
+                utmCampaigns = payload.UtmCampaigns;
+                searchTerms = payload.SearchTerms;
+                postEngagement = payload.PostEngagement;
+                memberEngagement = payload.MemberEngagement;
+                loading = false;
+                await LoadComparisonAsync();
+                await InvokeAsync(StateHasChanged);
+            });
+
+            hubConnection.On<List<MemberPostActivityRow>>("ReceiveMemberPostActivity", async activity =>
+            {
+                memberPostActivity = activity;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            hubConnection.On<int>("ReceiveLiveVisitors", async count =>
+            {
+                liveVisitors = count;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            hubConnection.On<List<RecentPageviewDto>>("ReceiveRecentPageviews", async pageviews =>
+            {
+                recentPageviews = pageviews;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await hubConnection.StartAsync(cts.Token);
+        }
+        catch (Exception)
+        {
+            // Hub connection is optional — real-time updates won't work but page still functions
+        }
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        if (exporting) return;
+        exporting = true;
+        StateHasChanged();
+        try
+        {
+            var sb = new StringBuilder();
+            var rangeLabel = $"{dateFrom:yyyy-MM-dd} to {dateTo.AddDays(-1):yyyy-MM-dd}";
+            sb.Append("HowToSoftware Analytics Export").Append('\n');
+            sb.Append("Date range,").Append(CsvEscape(rangeLabel)).Append('\n');
+            sb.Append("Generated,").Append(DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")).Append(" UTC\n");
+            sb.Append('\n');
+
+            // KPIs
+            sb.Append("# KPIs\n");
+            sb.Append("metric,value\n");
+            if (kpi is not null)
+            {
+                sb.Append("Unique Visitors,").Append(kpi.Visitors).Append('\n');
+                sb.Append("Visits,").Append(kpi.Visits).Append('\n');
+                sb.Append("Pageviews,").Append(kpi.Pageviews).Append('\n');
+                sb.Append("Bounce Rate %,").Append(kpi.BounceRatePercent.ToString("0.##")).Append('\n');
+                sb.Append("Avg Session Duration (s),").Append(kpi.AvgSessionDurationSeconds.ToString("0.##")).Append('\n');
+            }
+            sb.Append('\n');
+
+            // Top Pages
+            sb.Append("# Top Pages\n");
+            sb.Append("page_path,post_title,author,published_at,pageviews,unique_visitors,avg_time_on_page_seconds\n");
+            if (topPages is not null)
+            {
+                foreach (var p in topPages)
+                {
+                    sb.Append(CsvEscape(p.PagePath)).Append(',');
+                    sb.Append(CsvEscape(p.PostTitle ?? "")).Append(',');
+                    sb.Append(CsvEscape(p.AuthorName ?? "")).Append(',');
+                    sb.Append(p.PublishedAt is { } pub ? pub.ToString("yyyy-MM-dd") : "").Append(',');
+                    sb.Append(p.Pageviews).Append(',');
+                    sb.Append(p.UniqueVisitors).Append(',');
+                    sb.Append(p.AvgTimeOnPageSeconds?.ToString("0.##") ?? "").Append('\n');
+                }
+            }
+            sb.Append('\n');
+
+            // Top Sources
+            sb.Append("# Top Sources\n");
+            sb.Append("source,visits,unique_visitors\n");
+            if (topSources is not null)
+            {
+                foreach (var s in topSources)
+                {
+                    sb.Append(CsvEscape(s.Source)).Append(',');
+                    sb.Append(s.Visits).Append(',');
+                    sb.Append(s.UniqueVisitors).Append('\n');
+                }
+            }
+            sb.Append('\n');
+
+            // Search Terms
+            sb.Append("# Search Terms\n");
+            sb.Append("term,engine,visits,unique_visitors\n");
+            if (searchTerms is not null)
+            {
+                foreach (var st in searchTerms)
+                {
+                    sb.Append(CsvEscape(st.Term)).Append(',');
+                    sb.Append(CsvEscape(st.Engine)).Append(',');
+                    sb.Append(st.Visits).Append(',');
+                    sb.Append(st.UniqueVisitors).Append('\n');
+                }
+            }
+            sb.Append('\n');
+
+            // Countries
+            sb.Append("# Countries\n");
+            sb.Append("country,visitors,percentage\n");
+            if (countries is not null)
+            {
+                foreach (var c in countries)
+                {
+                    sb.Append(CsvEscape(c.Country)).Append(',');
+                    sb.Append(c.Visitors).Append(',');
+                    sb.Append(c.Percentage.ToString("0.##")).Append('\n');
+                }
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var base64 = Convert.ToBase64String(bytes);
+            var filename = $"analytics-{dateFrom:yyyyMMdd}-{dateTo.AddDays(-1):yyyyMMdd}.csv";
+            await JS.InvokeVoidAsync("downloadCsv", filename, base64);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            exporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await JS.InvokeVoidAsync("analyticsCharts.destroyAll");
+            try { await JS.InvokeVoidAsync("analyticsMap.destroy"); } catch { /* ignore */ }
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    // DTO for SignalR payload deserialization
+    private record AnalyticsDashboardPayload
+    {
+        public AnalyticsKpiSummary Kpi { get; init; } = new(0, 0, 0, 0, 0);
+        public List<TopPageRow> TopPages { get; init; } = [];
+        public List<TopSourceRow> TopSources { get; init; } = [];
+        public List<DeviceRow> Devices { get; init; } = [];
+        public List<BrowserRow> Browsers { get; init; } = [];
+        public List<OsRow> OperatingSystems { get; init; } = [];
+        public List<ReferrerRow> Referrers { get; init; } = [];
+        public List<CountryRow> Countries { get; init; } = [];
+        public List<TrafficTimeSeriesRow> TrafficTimeSeries { get; init; } = [];
+        public List<UtmCampaignRow> UtmCampaigns { get; init; } = [];
+        public List<SearchTermRow> SearchTerms { get; init; } = [];
+        public List<PostEngagementRow> PostEngagement { get; init; } = [];
+        public List<MemberEngagementRow> MemberEngagement { get; init; } = [];
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

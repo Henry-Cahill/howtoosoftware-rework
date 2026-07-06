@@ -1,0 +1,83 @@
+@page "/p/{uuid}"
+@model PreviewModel
+@{
+    var post = Model.Post;
+}
+
+@* ── Preview banner ── *@
+<div style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#e6a700;color:#000;text-align:center;padding:6px 12px;font-size:14px;font-weight:600;">
+    Preview — This page has not been published.
+</div>
+<div style="height:36px;"></div>
+
+@if (Model.IsPage)
+{
+    <main id="site-main" class="site-main">
+    <article class="article page">
+
+        <header class="article-header gh-canvas">
+            <h1 class="article-title">@post.Title</h1>
+
+            @if (!string.IsNullOrEmpty(post.FeatureImage))
+            {
+                <figure class="article-image">
+                    <img srcset="@(post.FeatureImage)?w=300 300w,
+                                 @(post.FeatureImage)?w=600 600w,
+                                 @(post.FeatureImage)?w=1000 1000w,
+                                 @(post.FeatureImage)?w=2000 2000w"
+                         sizes="(min-width: 1400px) 1400px, 92vw"
+                         src="@(post.FeatureImage)?w=2000"
+                         alt="@(post.Meta?.FeatureImageAlt ?? post.Title)" />
+                    @if (!string.IsNullOrEmpty(post.Meta?.FeatureImageCaption))
+                    {
+                        <figcaption>@Html.Raw(post.Meta.FeatureImageCaption)</figcaption>
+                    }
+                </figure>
+            }
+        </header>
+
+        <section class="gh-content gh-canvas">
+            @Html.Raw(Model.RenderedContent)
+        </section>
+
+    </article>
+    </main>
+}
+else
+{
+    <main id="site-main" class="site-main">
+    <article class="article post @(post.Featured ? "featured" : "")">
+
+        <header class="article-header gh-canvas">
+            <h1 class="article-title">@post.Title</h1>
+
+            @if (!string.IsNullOrEmpty(post.FeatureImage))
+            {
+                <figure class="article-image">
+                    <img srcset="@(post.FeatureImage)?w=300 300w,
+                                 @(post.FeatureImage)?w=600 600w,
+                                 @(post.FeatureImage)?w=1000 1000w,
+                                 @(post.FeatureImage)?w=2000 2000w"
+                         sizes="(min-width: 1400px) 1400px, 92vw"
+                         src="@(post.FeatureImage)?w=2000"
+                         alt="@(post.Meta?.FeatureImageAlt ?? post.Title)" />
+                    @if (!string.IsNullOrEmpty(post.Meta?.FeatureImageCaption))
+                    {
+                        <figcaption>@Html.Raw(post.Meta.FeatureImageCaption)</figcaption>
+                    }
+                </figure>
+            }
+        </header>
+
+        <section class="gh-content gh-canvas">
+            @Html.Raw(Model.RenderedContent)
+        </section>
+
+    </article>
+    </main>
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

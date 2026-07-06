@@ -1,0 +1,418 @@
+@page "/tiers/new"
+@page "/tiers/{ProductId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IStripeService StripeService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Tier" : $"Edit — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="tiers" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Tiers
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-warning" @onclick="SyncToStripeAsync" disabled="@saving">
+                <i class="bi bi-arrow-repeat me-1"></i>Sync to Stripe
+            </button>
+            @if (active)
+            {
+                <button class="btn btn-sm btn-outline-danger" @onclick="() => showArchiveConfirm = true" disabled="@saving">
+                    <i class="bi bi-archive me-1"></i>Archive
+                </button>
+            }
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+<!-- Archive Confirmation Modal -->
+@if (showArchiveConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Archive Tier</h5>
+                    <button type="button" class="btn-close" @onclick="() => showArchiveConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to archive <strong>@name</strong>? It will no longer be available for new subscriptions. Existing subscribers will not be affected.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showArchiveConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ArchiveAsync">
+                        <i class="bi bi-archive me-1"></i>Archive
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Tier details</h6></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="e.g. HowToSoftware+" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="description" placeholder="A short description of what this tier includes"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Welcome page URL</label>
+                        <input type="url" class="form-control" @bind="welcomePageUrl" placeholder="https://..." />
+                        <div class="form-text">Redirect new subscribers here after checkout.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Pricing</h6></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Currency</label>
+                            <select class="form-select" @bind="currency">
+                                <option value="usd">USD ($)</option>
+                                <option value="eur">EUR (€)</option>
+                                <option value="gbp">GBP (£)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Monthly price (cents)</label>
+                            <input type="number" class="form-control" @bind="monthlyPrice" min="0" step="1" />
+                            <div class="form-text">@FormatPrice(monthlyPrice, currency)/mo</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Yearly price (cents)</label>
+                            <input type="number" class="form-control" @bind="yearlyPrice" min="0" step="1" />
+                            <div class="form-text">@FormatPrice(yearlyPrice, currency)/yr</div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Free trial days</label>
+                        <input type="number" class="form-control" style="max-width:200px" @bind="trialDays" min="0" />
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Display order</label>
+                        <input type="number" class="form-control" style="max-width:200px" @bind="sortOrder" min="0" />
+                        <div class="form-text">
+                            Determines the order tiers appear on the public pricing page.
+                            Lower numbers appear first. You can also drag-and-drop tiers on the
+                            <a href="tiers">Tiers</a> grid.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Benefits</h6>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="AddBenefit">
+                            <i class="bi bi-plus-lg me-1"></i>Add
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (benefits.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No benefits added. Benefits are displayed on your pricing page.</p>
+                    }
+                    else
+                    {
+                        @for (var i = 0; i < benefits.Count; i++)
+                        {
+                            var idx = i;
+                            <div class="input-group mb-2">
+                                <span class="input-group-text"><i class="bi bi-check-circle"></i></span>
+                                <input type="text" class="form-control" value="@benefits[idx]"
+                                    @onchange="e => benefits[idx] = e.Value?.ToString() ?? string.Empty"
+                                    placeholder="e.g. Access to all posts" />
+                                <button class="btn btn-outline-danger" @onclick="() => benefits.RemoveAt(idx)">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && product is not null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Stripe status</h6></div>
+                    <div class="card-body">
+                        @{ var synced = product.StripeProducts.Count > 0; }
+                        @if (synced)
+                        {
+                            <div class="mb-2">
+                                <i class="bi bi-check-circle text-success me-1"></i>
+                                <strong>Synced to Stripe</strong>
+                            </div>
+                            @foreach (var sp in product.StripeProducts)
+                            {
+                                <div class="small text-muted mb-1">
+                                    Product: <code>@sp.StripeProductId</code>
+                                </div>
+                                @foreach (var price in sp.Prices.Where(p => p.Active))
+                                {
+                                    <div class="small text-muted">
+                                        Price (@price.Interval): <code>@price.StripePriceId</code>
+                                    </div>
+                                }
+                            }
+                        }
+                        else
+                        {
+                            <div>
+                                <i class="bi bi-exclamation-circle text-warning me-1"></i>
+                                <span>Not synced to Stripe</span>
+                            </div>
+                            <div class="form-text">Click "Sync to Stripe" to create this product in your Stripe account.</div>
+                        }
+                    </div>
+                </div>
+
+                @if (product.Offers.Count > 0)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header"><h6 class="mb-0">Offers</h6></div>
+                        <div class="card-body">
+                            @foreach (var offer in product.Offers)
+                            {
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span>@offer.Name</span>
+                                    <span class="badge @(offer.Active ? "bg-success" : "bg-secondary")">
+                                        @(offer.Active ? "Active" : "Inactive")
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="card">
+                    <div class="card-header"><h6 class="mb-0">Info</h6></div>
+                    <div class="card-body small text-muted">
+                        <div>Created: @product.CreatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                        @if (product.UpdatedAt.HasValue)
+                        {
+                            <div>Updated: @product.UpdatedAt.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                        }
+                        <div>Slug: @product.Slug</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? ProductId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(ProductId);
+    private bool loaded;
+    private bool saving;
+    private string? statusMessage;
+    private bool isError;
+    private bool showArchiveConfirm;
+
+    private Product? product;
+    private string name = "";
+    private string? description;
+    private string currency = "usd";
+    private int monthlyPrice = 500;
+    private int yearlyPrice = 5000;
+    private int trialDays;
+    private string? welcomePageUrl;
+    private bool active = true;
+    private int sortOrder;
+    private List<string> benefits = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            product = await StripeService.GetProductAsync(ProductId!);
+            if (product is null)
+            {
+                Navigation.NavigateTo("tiers");
+                return;
+            }
+
+            name = product.Name;
+            description = product.Description;
+            currency = product.Currency ?? "usd";
+            monthlyPrice = product.MonthlyPrice ?? 0;
+            yearlyPrice = product.YearlyPrice ?? 0;
+            trialDays = product.TrialDays;
+            welcomePageUrl = product.WelcomePageUrl;
+            active = product.Active;
+            sortOrder = product.SortOrder;
+            benefits = product.ProductsBenefits
+                .OrderBy(pb => pb.SortOrder)
+                .Select(pb => pb.Benefit.Name)
+                .ToList();
+        }
+
+        loaded = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        statusMessage = null;
+
+        try
+        {
+            if (IsNew)
+            {
+                var created = await StripeService.CreateProductAsync(new CreateProductRequest
+                {
+                    Name = name.Trim(),
+                    Description = description?.Trim(),
+                    Currency = currency,
+                    MonthlyPrice = monthlyPrice,
+                    YearlyPrice = yearlyPrice,
+                    TrialDays = trialDays,
+                    WelcomePageUrl = welcomePageUrl?.Trim(),
+                    BenefitNames = benefits.Where(b => !string.IsNullOrWhiteSpace(b)).ToList(),
+                });
+
+                Navigation.NavigateTo($"tiers/{created.Id}/edit");
+            }
+            else
+            {
+                await StripeService.UpdateProductAsync(ProductId!, new UpdateProductRequest
+                {
+                    Name = name.Trim(),
+                    Description = description?.Trim(),
+                    Currency = currency,
+                    MonthlyPrice = monthlyPrice,
+                    YearlyPrice = yearlyPrice,
+                    TrialDays = trialDays,
+                    WelcomePageUrl = welcomePageUrl?.Trim(),
+                    BenefitNames = benefits.Where(b => !string.IsNullOrWhiteSpace(b)).ToList(),
+                    SortOrder = sortOrder,
+                });
+
+                // Reload to refresh Stripe status
+                product = await StripeService.GetProductAsync(ProductId!);
+                if (product is not null) sortOrder = product.SortOrder;
+                statusMessage = "Saved";
+                isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task SyncToStripeAsync()
+    {
+        if (IsNew) return;
+
+        saving = true;
+        statusMessage = null;
+        try
+        {
+            await StripeService.SyncProductToStripeAsync(ProductId!);
+            product = await StripeService.GetProductAsync(ProductId!);
+            statusMessage = "Synced to Stripe";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task ArchiveAsync()
+    {
+        showArchiveConfirm = false;
+        saving = true;
+        try
+        {
+            await StripeService.ArchiveProductAsync(ProductId!);
+            Navigation.NavigateTo("tiers");
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            isError = true;
+            saving = false;
+        }
+    }
+
+    private void AddBenefit()
+    {
+        benefits.Add("");
+    }
+
+    private static string FormatPrice(int amountInCents, string? currency)
+    {
+        var symbol = (currency?.ToUpperInvariant()) switch
+        {
+            "USD" or null => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            _ => currency?.ToUpperInvariant() + " ",
+        };
+        return $"{symbol}{amountInCents / 100m:F2}";
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

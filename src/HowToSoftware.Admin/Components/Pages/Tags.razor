@@ -1,0 +1,431 @@
+@page "/tags"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ITagRepository TagRepository
+@inject IWebhookDispatchService WebhookDispatch
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Tags — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Tags</h1>
+    <a href="tags/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New tag</a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Visibility</label>
+                <select class="form-select form-select-sm" @bind="visibilityFilter" @bind:after="ApplyFilters">
+                    <option value="">All</option>
+                    <option value="public">Public</option>
+                    <option value="internal">Internal</option>
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by name…"
+                       @bind="searchQuery" @bind:after="ApplyFilters" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions -->
+@if (selectedIds.Count > 0)
+{
+    <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+        <strong>@selectedIds.Count selected</strong>
+        @if (selectedIds.Count == 2)
+        {
+            <button class="btn btn-sm btn-outline-primary" @onclick="OpenMergeModal">
+                <i class="bi bi-arrow-left-right me-1"></i>Merge
+            </button>
+        }
+        <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+            <i class="bi bi-trash-fill me-1"></i>Delete
+        </button>
+        <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> tag(s)? This will remove them from all posts. This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Merge Confirmation Modal -->
+@if (showMergeConfirm && mergeSourceTag is not null && mergeTargetTag is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Merge Tags</h5>
+                    <button type="button" class="btn-close" @onclick="() => showMergeConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>All posts tagged <strong>@mergeSourceTag.Name</strong>
+                        (@(postCounts.GetValueOrDefault(mergeSourceTag.Id, 0)) posts)
+                        will be reassigned to <strong>@mergeTargetTag.Name</strong>
+                        (@(postCounts.GetValueOrDefault(mergeTargetTag.Id, 0)) posts),
+                        then <strong>@mergeSourceTag.Name</strong> will be deleted.</p>
+                    <div class="d-flex align-items-center justify-content-center gap-2 my-3">
+                        <span class="badge bg-secondary fs-6 px-3 py-2">@mergeSourceTag.Name</span>
+                        <i class="bi bi-arrow-right text-muted"></i>
+                        <span class="badge bg-primary fs-6 px-3 py-2">@mergeTargetTag.Name</span>
+                    </div>
+                    <button class="btn btn-sm btn-link p-0" @onclick="SwapMergeDirection">
+                        <i class="bi bi-arrow-left-right me-1"></i>Swap direction
+                    </button>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showMergeConfirm = false">Cancel</button>
+                    <button class="btn btn-primary" @onclick="MergeTagsAsync" disabled="@merging">
+                        @if (merging)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-arrow-left-right me-1"></i>Merge
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Tags Table -->
+@if (allTags is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (filteredTags.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-tags display-4 d-block mb-2"></i>
+            No tags found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 32px"></th>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("name")'>
+                            Tag
+                            @if (sortColumn == "name") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("slug")'>
+                            Slug
+                            @if (sortColumn == "slug") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("posts")'>
+                            Posts
+                            @if (sortColumn == "posts") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Visibility</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var tag in filteredTags)
+                    {
+                        <tr class="@(!string.IsNullOrEmpty(tag.AccentColor) ? "tag-row-accent" : "")"
+                            style="@(!string.IsNullOrEmpty(tag.AccentColor) ? $"--tag-accent: {tag.AccentColor}" : "")"
+                            data-tag-draggable data-tag-drop data-tag-id="@tag.Id">
+                            <td>
+                                <i class="bi bi-grip-vertical tag-drag-handle"></i>
+                            </td>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(tag.Id)"
+                                       @onchange="() => ToggleSelection(tag.Id)" />
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <a href="tags/@tag.Id/edit" class="fw-medium text-decoration-none text-body">
+                                        @tag.Name
+                                    </a>
+                                    @if (!string.IsNullOrEmpty(tag.Description))
+                                    {
+                                        <span class="text-muted small d-none d-md-inline">
+                                            — @Truncate(tag.Description, 60)
+                                        </span>
+                                    }
+                                </div>
+                            </td>
+                            <td class="text-muted small">/@tag.Slug/</td>
+                            <td class="text-muted small">
+                                @(postCounts.GetValueOrDefault(tag.Id, 0))
+                            </td>
+                            <td>
+                                <span class="badge @(tag.Visibility == "public" ? "bg-success" : "bg-secondary")">
+                                    @tag.Visibility
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filteredTags.Count tag(s)</small>
+    </div>
+}
+
+@code {
+    private List<Tag>? allTags;
+    private List<Tag> filteredTags = [];
+    private Dictionary<string, int> postCounts = [];
+
+    // Filters
+    private string visibilityFilter = "";
+    private string searchQuery = "";
+
+    // Sorting
+    private string sortColumn = "order";
+    private bool sortAscending = true;
+
+    // Selection
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+
+    // Merge
+    private bool showMergeConfirm;
+    private bool merging;
+    private Tag? mergeSourceTag;
+    private Tag? mergeTargetTag;
+
+    // Drag-to-reorder
+    private IJSObjectReference? sortableModule;
+    private DotNetObjectReference<Tags>? dotNetRef;
+
+    private bool allSelected => filteredTags.Count > 0
+        && filteredTags.All(t => selectedIds.Contains(t.Id));
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTagsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (allTags is not null && allTags.Count > 0)
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            sortableModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/tag-sortable.js");
+            await sortableModule.InvokeVoidAsync("init", dotNetRef);
+        }
+    }
+
+    private async Task LoadTagsAsync()
+    {
+        allTags = await TagRepository.GetAllAsync();
+
+        var tagIds = allTags.Select(t => t.Id).ToList();
+        postCounts = tagIds.Count > 0
+            ? await TagRepository.GetPostCountsAsync(tagIds)
+            : [];
+
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (allTags is null) return;
+
+        var filtered = allTags.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(visibilityFilter))
+            filtered = filtered.Where(t => t.Visibility == visibilityFilter);
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            filtered = filtered.Where(t => t.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        // Sorting
+        filtered = sortColumn switch
+        {
+            "slug" => sortAscending
+                ? filtered.OrderBy(t => t.Slug)
+                : filtered.OrderByDescending(t => t.Slug),
+            "posts" => sortAscending
+                ? filtered.OrderBy(t => postCounts.GetValueOrDefault(t.Id, 0))
+                : filtered.OrderByDescending(t => postCounts.GetValueOrDefault(t.Id, 0)),
+            "order" => sortAscending
+                ? filtered.OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
+                : filtered.OrderByDescending(t => t.SortOrder).ThenByDescending(t => t.Name),
+            _ => sortAscending
+                ? filtered.OrderBy(t => t.Name)
+                : filtered.OrderByDescending(t => t.Name),
+        };
+
+        filteredTags = filtered.ToList();
+        selectedIds.Clear();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column is "name" or "slug";
+        }
+        ApplyFilters();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. filteredTags.Select(t => t.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        foreach (var id in selectedIds)
+        {
+            await TagRepository.DeleteAsync(id);
+            WebhookDispatch.Enqueue("tag.deleted", new { id });
+        }
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadTagsAsync();
+    }
+
+    private void OpenMergeModal()
+    {
+        if (selectedIds.Count != 2 || allTags is null) return;
+        var ids = selectedIds.ToList();
+        mergeSourceTag = allTags.FirstOrDefault(t => t.Id == ids[0]);
+        mergeTargetTag = allTags.FirstOrDefault(t => t.Id == ids[1]);
+        showMergeConfirm = mergeSourceTag is not null && mergeTargetTag is not null;
+    }
+
+    private void SwapMergeDirection()
+    {
+        (mergeSourceTag, mergeTargetTag) = (mergeTargetTag, mergeSourceTag);
+    }
+
+    private async Task MergeTagsAsync()
+    {
+        if (mergeSourceTag is null || mergeTargetTag is null) return;
+        merging = true;
+        try
+        {
+            await TagRepository.MergeAsync(mergeSourceTag.Id, mergeTargetTag.Id);
+            WebhookDispatch.Enqueue("tag.deleted", new { id = mergeSourceTag.Id, name = mergeSourceTag.Name });
+            WebhookDispatch.Enqueue("tag.edited", new { id = mergeTargetTag.Id, name = mergeTargetTag.Name });
+        }
+        finally
+        {
+            merging = false;
+            showMergeConfirm = false;
+            mergeSourceTag = null;
+            mergeTargetTag = null;
+            selectedIds.Clear();
+            await LoadTagsAsync();
+        }
+    }
+
+    private static string Truncate(string text, int maxLength)
+        => text.Length <= maxLength ? text : string.Concat(text.AsSpan(0, maxLength), "…");
+
+    [JSInvokable]
+    public async Task OnTagDropped(string draggedId, string targetId, string position)
+    {
+        if (filteredTags.Count == 0 || draggedId == targetId) return;
+
+        var draggedIndex = filteredTags.FindIndex(t => t.Id == draggedId);
+        var targetIndex = filteredTags.FindIndex(t => t.Id == targetId);
+        if (draggedIndex < 0 || targetIndex < 0) return;
+
+        var dragged = filteredTags[draggedIndex];
+        filteredTags.RemoveAt(draggedIndex);
+
+        var insertIndex = filteredTags.FindIndex(t => t.Id == targetId);
+        if (position == "below") insertIndex++;
+        filteredTags.Insert(insertIndex, dragged);
+
+        // Persist new sort order
+        var tagOrders = filteredTags
+            .Select((t, i) => (t.Id, SortOrder: i))
+            .ToList();
+        await TagRepository.UpdateSortOrderAsync(tagOrders);
+
+        // Sync allTags with the new sort orders
+        foreach (var (id, sortOrder) in tagOrders)
+        {
+            var tag = allTags?.FirstOrDefault(t => t.Id == id);
+            if (tag is not null) tag.SortOrder = sortOrder;
+        }
+
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (sortableModule is not null)
+        {
+            await sortableModule.InvokeVoidAsync("destroy");
+            await sortableModule.DisposeAsync();
+        }
+        dotNetRef?.Dispose();
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

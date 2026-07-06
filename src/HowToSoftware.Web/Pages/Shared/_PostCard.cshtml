@@ -1,0 +1,74 @@
+@model HowToSoftware.Web.Models.PostCardViewModel
+
+<article class="@Model.CssClasses">
+
+    @if (!string.IsNullOrEmpty(Model.FeatureImage))
+    {
+        <a class="post-card-image-link" href="/@Model.Slug/">
+            <img class="post-card-image"
+                 srcset="@(Model.FeatureImage)?w=300 300w,
+                         @(Model.FeatureImage)?w=600 600w,
+                         @(Model.FeatureImage)?w=1000 1000w,
+                         @(Model.FeatureImage)?w=2000 2000w"
+                 sizes="(max-width: 1000px) 400px, 800px"
+                 src="@(Model.FeatureImage)?w=600"
+                 alt="@(Model.FeatureImageAlt ?? Model.Title)"
+                 loading="lazy" />
+
+            @if (Model.Visibility != "public")
+            {
+                <div class="post-card-access">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                        <path d="M18 10h-1V7A5 5 0 0 0 7 7v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2ZM9 7a3 3 0 0 1 6 0v3H9Z"/>
+                    </svg>
+                    @(Model.Visibility == "members" ? "Members only" : "Paid-members only")
+                </div>
+            }
+        </a>
+    }
+
+    <div class="post-card-content">
+        <a class="post-card-content-link" href="/@Model.Slug/">
+            <header class="post-card-header">
+                <div class="post-card-tags">
+                    @if (!string.IsNullOrEmpty(Model.PrimaryTagName))
+                    {
+                        <span class="post-card-primary-tag">@Model.PrimaryTagName</span>
+                    }
+                    @if (Model.Featured)
+                    {
+                        <span class="post-card-featured"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2c.5 0 .9.3 1 .8L14.3 8l5.4.4c.5 0 .9.4.9.9s-.1.8-.5 1l-4.2 3.3 1.4 5.3c.1.5-.1 1-.5 1.2-.4.2-.9.2-1.3-.1L12 17.2l-4.5 2.8c-.4.3-.9.3-1.3.1-.4-.2-.6-.7-.5-1.2l1.4-5.3L2.9 10c-.3-.3-.5-.6-.5-1s.4-.9.9-.9L8.7 8l1.3-5.2c.1-.5.5-.8 1-.8Z"/></svg> Featured</span>
+                    }
+                </div>
+                <h2 class="post-card-title">
+                    @if (Model.Visibility != "public" && string.IsNullOrEmpty(Model.FeatureImage))
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M18 10h-1V7A5 5 0 0 0 7 7v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2ZM9 7a3 3 0 0 1 6 0v3H9Z"/></svg>
+                    }
+                    @Model.Title
+                </h2>
+            </header>
+            @if (!string.IsNullOrEmpty(Model.Excerpt))
+            {
+                <div class="post-card-excerpt">@Model.Excerpt</div>
+            }
+        </a>
+
+        <footer class="post-card-meta">
+            @if (Model.PublishedAt.HasValue)
+            {
+                <time class="post-card-meta-date" datetime="@Model.PublishedAt.Value.ToString("yyyy-MM-dd")">@Model.PublishedAt.Value.ToString("dd MMM yyyy")</time>
+            }
+            @if (Model.ReadingTimeMinutes > 0)
+            {
+                <span class="post-card-meta-length">@Model.ReadingTimeMinutes min read</span>
+            }
+        </footer>
+    </div>
+
+</article>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

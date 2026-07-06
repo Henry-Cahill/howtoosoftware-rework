@@ -1,0 +1,261 @@
+/* ─────────────────────────────────────────────────────────────
+   Lexical Editor — Styles
+   ───────────────────────────────────────────────────────────── */
+
+/* ─── Toolbar ──────────────────────────────────────────────── */
+.le-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 0.375rem 0.5rem;
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+}
+
+.le-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #bac2de;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.le-toolbar-btn:hover {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.le-toolbar-btn.active {
+    background: #45475a;
+    color: #a78bfa;
+}
+
+.le-toolbar-sep {
+    width: 1px;
+    height: 24px;
+    background: #313244;
+    margin: 0 4px;
+}
+
+/* ─── Content Area ─────────────────────────────────────────── */
+.le-content {
+    min-height: 400px;
+    padding: 1.5rem;
+    border: 1px solid #313244;
+    border-radius: 0 0 6px 6px;
+    background: #11111b;
+    color: #cdd6f4;
+    font-size: 1rem;
+    line-height: 1.75;
+    outline: none;
+    caret-color: #a78bfa;
+}
+
+.le-content:focus {
+    border-color: #45475a;
+}
+
+/* ─── Drag-and-Drop Overlay ────────────────────────────────── */
+.le-content.le-drag-over {
+    border-color: #a78bfa;
+    background: rgba(167, 139, 250, 0.05);
+    box-shadow: inset 0 0 0 2px rgba(167, 139, 250, 0.25);
+}
+
+/* ─── Theme Classes ────────────────────────────────────────── */
+.le-paragraph {
+    margin: 0 0 1rem 0;
+}
+
+.le-h1 { font-size: 2rem; font-weight: 700; margin: 1.5rem 0 0.75rem; }
+.le-h2 { font-size: 1.5rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
+.le-h3 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.le-h4 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.le-h5 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; }
+.le-h6 { font-size: 0.875rem; font-weight: 600; margin: 0.75rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+.le-bold { font-weight: 700; }
+.le-italic { font-style: italic; }
+.le-underline { text-decoration: underline; }
+.le-strikethrough { text-decoration: line-through; }
+
+.le-inline-code {
+    background: #1e1e2e;
+    color: #f38ba8;
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+}
+
+.le-quote {
+    border-left: 3px solid #a78bfa;
+    margin: 0.75rem 0;
+    padding: 0.5rem 0 0.5rem 1rem;
+    color: #a6adc8;
+    font-style: italic;
+}
+
+.le-ol, .le-ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.le-li { margin: 0.25rem 0; }
+
+.le-link {
+    color: #a78bfa;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.le-link:hover {
+    color: #8b6de0;
+}
+
+/* ─── Image Card ───────────────────────────────────────────── */
+.le-image-card {
+    margin: 1rem 0;
+    text-align: center;
+    user-select: none;
+}
+
+.le-image-card img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+}
+
+.le-image-card figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: #6c7086;
+}
+
+/* ─── Code Block ───────────────────────────────────────────── */
+.le-code-block {
+    margin: 1rem 0;
+    position: relative;
+    user-select: none;
+}
+
+/* ─── Modal ────────────────────────────────────────────────── */
+.le-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.le-modal {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    color: #cdd6f4;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.le-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #313244;
+}
+
+.le-modal-header h5 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.le-modal-close {
+    background: none;
+    border: none;
+    color: #6c7086;
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.le-modal-close:hover {
+    color: #cdd6f4;
+}
+
+.le-modal-body {
+    padding: 1.25rem;
+}
+
+.le-modal-footer {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid #313244;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.le-input, .le-textarea {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    color: #cdd6f4;
+    font-family: inherit;
+    font-size: 0.875rem;
+    box-sizing: border-box;
+}
+
+.le-textarea {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    resize: vertical;
+}
+
+.le-input:focus, .le-textarea:focus {
+    outline: none;
+    border-color: #a78bfa;
+}
+
+.le-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 1rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.le-btn-primary {
+    background: #a78bfa;
+    color: #11111b;
+}
+
+.le-btn-primary:hover {
+    background: #8b6de0;
+}
+
+.le-btn-secondary {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.le-btn-secondary:hover {
+    background: #45475a;
+}

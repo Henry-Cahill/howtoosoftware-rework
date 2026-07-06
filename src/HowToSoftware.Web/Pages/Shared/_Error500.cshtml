@@ -1,0 +1,153 @@
+@* 500 Internal Server Error — ported from error-500.hbs *@
+
+<style>
+    .error-page-500 {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+    }
+
+    [data-theme="dark"] .error-page-500 {
+        background: linear-gradient(135deg, #1a1a2e 0%, #3d1f1f 100%);
+    }
+
+    .error-page-500 .error-container { max-width: 600px; }
+
+    .error-page-500 .error-gif {
+        width: 100%;
+        max-width: 400px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        animation: shake 0.5s ease-in-out infinite;
+    }
+
+    @@keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px) rotate(-1deg); }
+        75% { transform: translateX(5px) rotate(1deg); }
+    }
+
+    .error-page-500 .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .error-page-500 .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+
+    .error-page-500 .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+
+    .error-page-500 .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .error-page-500 .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .error-page-500 .error-btn-primary {
+        background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+        color: white;
+    }
+
+    .error-page-500 .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(229, 62, 62, 0.4);
+        color: white;
+    }
+
+    .error-page-500 .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+
+    .error-page-500 .fire-emoji {
+        font-size: 3rem;
+        animation: flicker 0.3s ease-in-out infinite alternate;
+        display: inline-block;
+    }
+
+    @@keyframes flicker {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0.8; transform: scale(1.1); }
+    }
+
+    .error-page-500 .dev-panic {
+        margin-top: 2rem;
+        padding: 1rem;
+        background: rgba(229, 62, 62, 0.1);
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        color: #e53e3e;
+    }
+</style>
+
+<section class="error-page-500 outer">
+    <div class="error-container inner">
+        <img
+            src="https://media.giphy.com/media/QMHoU66sBXqqLqYvGO/giphy.gif"
+            alt="This is Fine - Everything is okay"
+            class="error-gif"
+            loading="lazy"
+        />
+
+        <h1 class="error-code">500</h1>
+        <h2 class="error-title">Internal Server Error</h2>
+        <p class="error-description">
+            <span class="fire-emoji">🔥</span> This is fine. <span class="fire-emoji">🔥</span><br>
+            Our servers are just having a small existential crisis.
+        </p>
+
+        <div class="error-actions">
+            <a href="/" class="error-btn error-btn-primary">
+                🚒 Escape the Fire
+            </a>
+            <a href="javascript:location.reload()" class="error-btn error-btn-secondary">
+                🔄 Try Again (Bravely)
+            </a>
+        </div>
+
+        <div class="dev-panic">
+            &gt; ERROR: Coffee levels critical<br>
+            &gt; ALERT: Developer paged<br>
+            &gt; STATUS: Panicking internally
+        </div>
+    </div>
+</section>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

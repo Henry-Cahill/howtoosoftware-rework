@@ -1,0 +1,444 @@
+@page "/newsletters/{NewsletterId}/analytics"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject INewsletterRepository NewsletterRepository
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>@(newsletter is null ? "Newsletter Analytics" : $"{newsletter.Name} — Analytics") — HowToSoftware Admin</PageTitle>
+
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="newsletters" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Newsletters
+        </a>
+        @if (newsletter is not null)
+        {
+            <a href="newsletters/@NewsletterId/edit" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-pencil me-1"></i>Edit
+            </a>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <span class="text-danger small">
+                <i class="bi bi-exclamation-circle me-1"></i>@errorMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0 small text-muted">Growth</label>
+        <select class="form-select form-select-sm" style="width: auto"
+                @bind="growthDays" @bind:after="ReloadGrowthAsync" disabled="@loading">
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="180">Last 180 days</option>
+            <option value="365">Last 365 days</option>
+        </select>
+        <label class="form-label mb-0 small text-muted">Sends</label>
+        <select class="form-select form-select-sm" style="width: auto"
+                @bind="sendsLimit" @bind:after="ReloadAsync" disabled="@loading">
+            <option value="5">Last 5</option>
+            <option value="10">Last 10</option>
+            <option value="20">Last 20</option>
+            <option value="50">Last 50</option>
+        </select>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (newsletter is null)
+{
+    <div class="alert alert-warning">Newsletter not found.</div>
+}
+else
+{
+    <h1 class="h3 mb-1">@newsletter.Name</h1>
+    <p class="text-muted mb-4">Delivery analytics across the @(analytics?.TotalSends ?? 0) most recent send(s).</p>
+
+    @if (analytics is null || analytics.TotalSends == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-envelope display-4 d-block mb-2"></i>
+                No sends recorded for this newsletter yet.
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- KPI cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Total sent</div>
+                        <div class="fs-3 fw-bold">@analytics.TotalRecipients.ToString("N0")</div>
+                        <div class="small text-muted">across @analytics.TotalSends send(s)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Delivered</div>
+                        <div class="fs-3 fw-bold">@analytics.TotalDelivered.ToString("N0")</div>
+                        <div class="small text-muted">@FormatRate(analytics.TotalDelivered, analytics.TotalRecipients)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Open rate</div>
+                        <div class="fs-3 fw-bold">@FormatRate(analytics.TotalOpened, analytics.TotalDelivered)</div>
+                        <div class="small text-muted">@analytics.TotalOpened.ToString("N0") opens</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Failed</div>
+                        <div class="fs-3 fw-bold">@FormatRate(analytics.TotalFailed, analytics.TotalRecipients)</div>
+                        <div class="small text-muted">@analytics.TotalFailed.ToString("N0") bounce(s)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Unsubscribe rate</div>
+                        <div class="fs-3 fw-bold">@FormatRate(analytics.TotalUnsubscribed, analytics.TotalDelivered)</div>
+                        <div class="small text-muted">@analytics.TotalUnsubscribed.ToString("N0") unsub(s)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Subscribers</div>
+                        <div class="fs-3 fw-bold">@subscriberCount.ToString("N0")</div>
+                        <div class="small text-muted">active now</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trend chart -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <strong>Trend — last @analytics.TotalSends send(s)</strong>
+            </div>
+            <div class="card-body">
+                <div style="position: relative; height: 320px;">
+                    <canvas id="chartNewsletterTrend"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Subscriber growth chart -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Subscriber growth — last @growthDays days</strong>
+                @if (growth is not null && growth.Count > 0)
+                {
+                    var first = growth[0];
+                    var last = growth[^1];
+                    var net = last.CumulativeSubscribers - (first.CumulativeSubscribers - (first.Subscribed - first.Unsubscribed));
+                    var totalSub = growth.Sum(p => p.Subscribed);
+                    var totalUnsub = growth.Sum(p => p.Unsubscribed);
+                    <span class="small text-muted">
+                        <span class="text-success">+@totalSub.ToString("N0") subscribed</span>
+                        <span class="mx-1">·</span>
+                        <span class="text-danger">−@totalUnsub.ToString("N0") unsubscribed</span>
+                        <span class="mx-1">·</span>
+                        <span class="@(net >= 0 ? "text-success" : "text-danger")">
+                            net @(net >= 0 ? "+" : "")@net.ToString("N0")
+                        </span>
+                    </span>
+                }
+            </div>
+            <div class="card-body">
+                @if (growth is null || growth.Count == 0)
+                {
+                    <p class="text-muted mb-0 text-center py-4">No subscribe activity in this window.</p>
+                }
+                else
+                {
+                    <div style="position: relative; height: 320px;">
+                        <canvas id="chartNewsletterGrowth"></canvas>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Per-send table -->
+        <div class="card">
+            <div class="card-header">
+                <strong>Send history</strong>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Sent</th>
+                            <th>Post</th>
+                            <th class="text-end">Recipients</th>
+                            <th class="text-end">Delivered</th>
+                            <th class="text-end">Open rate</th>
+                            <th class="text-end">Failed</th>
+                            <th class="text-end">Unsubscribed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @* Newest send first *@
+                        @foreach (var send in analytics.RecentSends.Reverse())
+                        {
+                            <tr>
+                                <td class="text-muted small">@send.SubmittedAt.ToLocalTime().ToString("MMM d, yyyy HH:mm")</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(send.PostId) && !string.IsNullOrEmpty(send.PostTitle))
+                                    {
+                                        <a href="posts/@send.PostId/edit" class="text-decoration-none text-body">
+                                            @send.PostTitle
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">(unknown post)</span>
+                                    }
+                                </td>
+                                <td class="text-end">@send.EmailCount.ToString("N0")</td>
+                                <td class="text-end">@send.DeliveredCount.ToString("N0")</td>
+                                <td class="text-end">@FormatRate(send.OpenedCount, send.DeliveredCount)</td>
+                                <td class="text-end">@send.FailedCount.ToString("N0")</td>
+                                <td class="text-end">@send.UnsubscribedCount.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string NewsletterId { get; set; } = null!;
+
+    private Newsletter? newsletter;
+    private NewsletterAnalytics? analytics;
+    private IReadOnlyList<NewsletterGrowthPoint>? growth;
+    private int subscriberCount;
+    private int sendsLimit = 10;
+    private int growthDays = 90;
+    private bool loaded;
+    private bool loading;
+    private bool chartRendered;
+    private bool growthChartRendered;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        chartRendered = false;
+        growthChartRendered = false;
+        await LoadAsync();
+    }
+
+    private async Task ReloadGrowthAsync()
+    {
+        growthChartRendered = false;
+        await LoadGrowthAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            newsletter = await NewsletterRepository.GetByIdAsync(NewsletterId);
+            if (newsletter is null)
+            {
+                loaded = true;
+                return;
+            }
+
+            analytics = await NewsletterRepository.GetAnalyticsAsync(NewsletterId, sendsLimit);
+            subscriberCount = await NewsletterRepository.GetSubscriberCountAsync(NewsletterId);
+            await LoadGrowthAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load analytics: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            loaded = true;
+        }
+    }
+
+    private async Task LoadGrowthAsync()
+    {
+        if (newsletter is null) return;
+        var toUtc = DateTime.UtcNow;
+        var fromUtc = toUtc.AddDays(-(growthDays - 1));
+        growth = await NewsletterRepository.GetGrowthAsync(NewsletterId, fromUtc, toUtc);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await RenderTrendChartAsync();
+        await RenderGrowthChartAsync();
+    }
+
+    private async Task RenderTrendChartAsync()
+    {
+        if (analytics is null || analytics.TotalSends == 0) return;
+        if (chartRendered) return;
+        // Oldest → newest, so the trend reads left-to-right.
+        var sends = analytics.RecentSends;
+        var labels = sends.Select(s => s.SubmittedAt.ToLocalTime().ToString("MMM d")).ToArray();
+        var openRates = sends.Select(s => Rate(s.OpenedCount, s.DeliveredCount)).ToArray();
+        var failRates = sends.Select(s => Rate(s.FailedCount, s.EmailCount)).ToArray();
+        var unsubRates = sends.Select(s => Rate(s.UnsubscribedCount, s.DeliveredCount)).ToArray();
+
+        var datasets = new object[]
+        {
+            new {
+                label = "Open rate %",
+                data = openRates,
+                borderColor = "rgba(72,187,120,1)",
+                backgroundColor = "rgba(72,187,120,0.15)",
+                fill = false,
+                tension = 0.3
+            },
+            new {
+                label = "Failed %",
+                data = failRates,
+                borderColor = "rgba(245,101,101,1)",
+                backgroundColor = "rgba(245,101,101,0.15)",
+                fill = false,
+                tension = 0.3
+            },
+            new {
+                label = "Unsubscribe %",
+                data = unsubRates,
+                borderColor = "rgba(237,137,54,1)",
+                backgroundColor = "rgba(237,137,54,0.15)",
+                fill = false,
+                tension = 0.3
+            }
+        };
+
+        try
+        {
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartNewsletterTrend", "line", labels, datasets, (object?)null);
+            chartRendered = true;
+        }
+        catch
+        {
+            // Ignore JS errors (circuit may be tearing down).
+        }
+    }
+
+    private async Task RenderGrowthChartAsync()
+    {
+        if (growth is null || growth.Count == 0) return;
+        if (growthChartRendered) return;
+
+        var labels = growth.Select(p => p.Date.ToString("MMM d")).ToArray();
+        var cumulative = growth.Select(p => (double)p.CumulativeSubscribers).ToArray();
+        var subscribed = growth.Select(p => (double)p.Subscribed).ToArray();
+        var unsubscribed = growth.Select(p => -(double)p.Unsubscribed).ToArray();
+
+        var datasets = new object[]
+        {
+            new {
+                type = "line",
+                label = "Subscribers",
+                data = cumulative,
+                borderColor = "rgba(56,161,105,1)",
+                backgroundColor = "rgba(56,161,105,0.15)",
+                fill = true,
+                tension = 0.3,
+                yAxisID = "y",
+                order = 1
+            },
+            new {
+                type = "bar",
+                label = "Subscribed",
+                data = subscribed,
+                backgroundColor = "rgba(72,187,120,0.7)",
+                borderColor = "rgba(72,187,120,1)",
+                yAxisID = "y1",
+                order = 2
+            },
+            new {
+                type = "bar",
+                label = "Unsubscribed",
+                data = unsubscribed,
+                backgroundColor = "rgba(245,101,101,0.7)",
+                borderColor = "rgba(245,101,101,1)",
+                yAxisID = "y1",
+                order = 2
+            }
+        };
+
+        var options = new
+        {
+            scales = new
+            {
+                y = new { position = "left", title = new { display = true, text = "Subscribers" } },
+                y1 = new { position = "right", title = new { display = true, text = "Daily change" }, grid = new { drawOnChartArea = false } }
+            }
+        };
+
+        try
+        {
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate",
+                "chartNewsletterGrowth", "bar", labels, datasets, options);
+            growthChartRendered = true;
+        }
+        catch
+        {
+            // Ignore JS errors (circuit may be tearing down).
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("analyticsCharts.destroy", "chartNewsletterTrend");
+            await JS.InvokeVoidAsync("analyticsCharts.destroy", "chartNewsletterGrowth");
+        }
+        catch
+        {
+            // Ignore — circuit may already be torn down.
+        }
+    }
+
+    private static double Rate(int numerator, int denominator)
+        => denominator <= 0 ? 0 : Math.Round((double)numerator * 100.0 / denominator, 2);
+
+    private static string FormatRate(int numerator, int denominator)
+        => denominator <= 0 ? "—" : $"{Rate(numerator, denominator):0.##}%";
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,65 @@
+﻿@page "/Error/{statusCode?}"
+@model ErrorModel
+@{
+    Layout = "_Layout";
+    ViewData["Title"] = Model.ErrorStatusCode switch
+    {
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Page Not Found",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => $"Error {Model.ErrorStatusCode}"
+    };
+}
+
+@switch (Model.ErrorStatusCode)
+{
+    case 400:
+        @await Html.PartialAsync("_Error400")
+        break;
+    case 401:
+        @await Html.PartialAsync("_Error401")
+        break;
+    case 403:
+        @await Html.PartialAsync("_Error403")
+        break;
+    case 404:
+        @await Html.PartialAsync("_Error404")
+        break;
+    case 500:
+        @await Html.PartialAsync("_Error500")
+        break;
+    case 502:
+        @await Html.PartialAsync("_Error502")
+        break;
+    case 503:
+        @await Html.PartialAsync("_Error503")
+        break;
+    case 504:
+        @await Html.PartialAsync("_Error504")
+        break;
+    default:
+        @await Html.PartialAsync("_ErrorGeneric")
+        break;
+}
+
+@if (Model.ErrorStatusCode == 404 && Model.SuggestedPosts.Count > 0)
+{
+    <aside class="read-more-wrap outer">
+        <div class="read-more inner">
+            @foreach (var card in Model.SuggestedPosts)
+            {
+                <partial name="_PostCard" model="card" />
+            }
+        </div>
+    </aside>
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

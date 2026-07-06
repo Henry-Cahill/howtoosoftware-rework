@@ -1,0 +1,29 @@
+{{!< default}}
+{{!-- The tag above means: insert everything in this file
+into the {body} of the default.hbs template --}}
+
+{{!-- Homepage Hero/Intro Section --}}
+<section class="home-hero">
+    <div class="home-hero-inner">
+        <h1 class="home-hero-title">{{@site.title}}</h1>
+        {{#if @site.description}}
+            <p class="home-hero-description">{{@site.description}}</p>
+        {{/if}}
+    </div>
+</section>
+
+{{!-- The main content area --}}
+<main id="site-main" class="site-main outer">
+<div class="inner posts">
+
+    <div class="post-feed">
+        {{#foreach posts}}
+            {{!-- The tag below includes the markup for each post - partials/post-card.hbs --}}
+            {{> "post-card"}}
+        {{/foreach}}
+    </div>
+
+    {{pagination}}
+
+</div>
+</main>

@@ -1,0 +1,123 @@
+{
+    "name": "howtoosoftware-custom",
+    "description": "Custom Ghost theme for HowToSoftware",
+    "version": "2.0.1",
+    "private": true,
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Henry Lawrence Cahill",
+        "email": "henry.cahill@howtoosoftware.com",
+        "url": "https://howtoosoftware.com"
+    },
+    "keywords": [
+        "ghost",
+        "theme",
+        "ghost-theme"
+    ],
+    "docs": "https://ease.ghost.io/about/",
+    "config": {
+        "posts_per_page": 25,
+        "image_sizes": {
+            "xxs": {
+                "width": 30
+            },
+            "xs": {
+                "width": 100
+            },
+            "s": {
+                "width": 300
+            },
+            "m": {
+                "width": 600
+            },
+            "l": {
+                "width": 1000
+            },
+            "xl": {
+                "width": 2000
+            }
+        },
+        "card_assets": true,
+        "custom": {
+            "navigation_layout": {
+                "type": "select",
+                "options": ["Logo on cover", "Logo in the middle", "Stacked"],
+                "default": "Logo on cover"
+            },
+            "title_font": {
+                "type": "select",
+                "options": ["Modern sans-serif", "Elegant serif"],
+                "default": "Modern sans-serif"
+            },
+            "body_font": {
+                "type": "select",
+                "options": ["Modern sans-serif", "Elegant serif"],
+                "default": "Elegant serif"
+            },
+            "show_publication_cover": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage"
+            },
+            "header_style": {
+                "type": "select",
+                "options": ["Center aligned", "Left aligned", "Hidden"],
+                "default": "Center aligned",
+                "group": "homepage"
+            },
+            "feed_layout": {
+                "type": "select",
+                "options": ["Classic", "Grid", "List"],
+                "default": "Classic",
+                "group": "homepage"
+            },
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Auto"],
+                "default": "Light"
+            },
+            "post_image_style": {
+                "type": "select",
+                "options": ["Wide", "Full", "Small", "Hidden"],
+                "default": "Wide",
+                "group": "post"
+            },
+            "email_signup_text": {
+                "type": "text",
+                "default": "Sign up for more like this.",
+                "group": "post"
+            },
+            "show_recent_posts_footer": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            }
+        }
+    },
+    "scripts": {
+        "dev": "gulp",
+        "test": "gscan .",
+        "build": "gulp build",
+        "zip": "gulp zip"
+    },
+    "devDependencies": {
+        "@tryghost/shared-theme-assets": "2.5.2",
+        "autoprefixer": "10.4.20",
+        "beeper": "3.0.0",
+        "cssnano": "7.0.6",
+        "gscan": "5.2.1",
+        "gulp": "5.0.0",
+        "gulp-concat": "2.6.1",
+        "gulp-livereload": "4.0.2",
+        "gulp-postcss": "10.0.0",
+        "gulp-uglify": "3.0.2",
+        "gulp-zip": "6.0.0",
+        "ordered-read-streams": "2.0.0",
+        "postcss": "8.4.49",
+        "postcss-easy-import": "4.0.0",
+        "pump": "3.0.2"
+    }
+}

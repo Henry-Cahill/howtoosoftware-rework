@@ -1,0 +1,48 @@
+@* Page.cshtml – static page template (ported from Ghost page.hbs)
+   Rendered as a partial from Post.cshtml when the content type is "page".
+   Pages are simpler than posts: no byline, no tags, no author box, no comments, no related posts. *@
+@model PostModel
+@{
+    var post = Model.Post;
+}
+
+<main id="site-main" class="site-main">
+<article class="article page">
+
+    @if (Model.ShowTitleAndFeatureImage)
+    {
+        <header class="article-header gh-canvas">
+
+            <h1 class="article-title">@post.Title</h1>
+
+            @if (!string.IsNullOrEmpty(post.FeatureImage))
+            {
+                <figure class="article-image">
+                    <img srcset="@(post.FeatureImage)?w=300 300w,
+                                 @(post.FeatureImage)?w=600 600w,
+                                 @(post.FeatureImage)?w=1000 1000w,
+                                 @(post.FeatureImage)?w=2000 2000w"
+                         sizes="(min-width: 1400px) 1400px, 92vw"
+                         src="@(post.FeatureImage)?w=2000"
+                         alt="@(post.Meta?.FeatureImageAlt ?? post.Title)" />
+                    @if (!string.IsNullOrEmpty(post.Meta?.FeatureImageCaption))
+                    {
+                        <figcaption>@Html.Raw(post.Meta.FeatureImageCaption)</figcaption>
+                    }
+                </figure>
+            }
+
+        </header>
+    }
+
+    <section class="gh-content gh-canvas">
+        @Html.Raw(Model.RenderedContent)
+    </section>
+
+</article>
+</main>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

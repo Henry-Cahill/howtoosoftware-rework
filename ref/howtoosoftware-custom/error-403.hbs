@@ -1,0 +1,134 @@
+{{!< default}}
+
+{{!-- 403 Forbidden - You can't access this even if logged in --}}
+
+<style>
+    .error-page {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #faf5ff 0%, #e9d8fd 100%);
+    }
+    
+    [data-theme="dark"] .error-page {
+        background: linear-gradient(135deg, #1a1a2e 0%, #2d1f4a 100%);
+    }
+    
+    .error-container { max-width: 600px; }
+    
+    .error-gif {
+        width: 100%;
+        max-width: 350px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+    
+    .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    
+    .error-btn-primary {
+        background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+        color: white;
+    }
+    
+    .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(159, 122, 234, 0.4);
+        color: white;
+    }
+    
+    .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+    
+    .classified-stamp {
+        margin-top: 2rem;
+        padding: 1rem 2rem;
+        background: rgba(128, 90, 213, 0.1);
+        border: 3px dashed #805ad5;
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #805ad5;
+        transform: rotate(-2deg);
+        display: inline-block;
+    }
+</style>
+
+<section class="error-page outer">
+    <div class="error-container inner">
+        {{!-- Mutley snickering / mischievous --}}
+        <img 
+            src="https://media.giphy.com/media/1zSz5MVw4zKg0/giphy.gif" 
+            alt="Access Denied - Nope" 
+            class="error-gif"
+        />
+        
+        <h1 class="error-code">403</h1>
+        <h2 class="error-title">Forbidden</h2>
+        <p class="error-description">
+            Nice try, but this area is off-limits! 🚫<br>
+            Even knowing the secret handshake won't help you here.
+        </p>
+        
+        <div class="error-actions">
+            <a href="{{@site.url}}" class="error-btn error-btn-primary">
+                🏠 Back to Safety
+            </a>
+            <a href="javascript:history.back()" class="error-btn error-btn-secondary">
+                ← Retreat!
+            </a>
+        </div>
+        
+        <div class="classified-stamp">
+            🔒 TOP SECRET 🔒<br>
+            CLEARANCE LEVEL: NOT YOURS
+        </div>
+    </div>
+</section>

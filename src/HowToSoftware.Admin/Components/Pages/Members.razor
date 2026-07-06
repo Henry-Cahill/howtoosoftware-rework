@@ -1,0 +1,954 @@
+@page "/members"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Text
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IMemberRepository MemberRepository
+@inject ILabelRepository LabelRepository
+@inject IMemberSegmentRepository SegmentRepository
+@inject IMemberImportService MemberImportService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Members — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Members</h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="OpenImportDialog" disabled="@(importing || exporting)">
+            <i class="bi bi-upload me-1"></i>Import CSV
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="ExportCsvAsync" disabled="@exporting">
+            @if (exporting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-download me-1"></i>Export CSV
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+        <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <div class="text-muted small">Total</div>
+                <div class="fs-4 fw-bold">@totalCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <div class="text-muted small">Free</div>
+                <div class="fs-4 fw-bold">@freeCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <div class="text-muted small">Paid</div>
+                <div class="fs-4 fw-bold">@paidCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <div class="text-muted small">Comped</div>
+                <div class="fs-4 fw-bold">@compedCount</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Saved Segments -->
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="text-muted small me-1">Segments:</span>
+    @if (segments.Count == 0)
+    {
+        <span class="text-muted small fst-italic">None saved yet.</span>
+    }
+    else
+    {
+        @foreach (var seg in segments)
+        {
+            var s = seg;
+            var active = activeSegmentId == s.Id;
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button"
+                        class="btn @(active ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => ApplySegmentAsync(s)"
+                        title="@DescribeSegment(s)">
+                    <i class="bi bi-bookmark-fill me-1"></i>@s.Name
+                </button>
+                <button type="button"
+                        class="btn @(active ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => DeleteSegmentAsync(s)"
+                        title="Delete segment">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+        }
+    }
+    <button class="btn btn-sm btn-outline-secondary ms-auto"
+            @onclick="OpenSaveSegmentDialog"
+            disabled="@(!HasActiveFilters)"
+            title="@(HasActiveFilters ? "Save current filter as a segment" : "Apply filters first")">
+        <i class="bi bi-bookmark-plus me-1"></i>Save current filter
+    </button>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Status</label>
+                <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ReloadAsync">
+                    <option value="">All</option>
+                    <option value="free">Free</option>
+                    <option value="paid">Paid</option>
+                    <option value="comped">Comped</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Label</label>
+                <select class="form-select form-select-sm" @bind="labelFilter" @bind:after="ReloadAsync">
+                    <option value="">All labels</option>
+                    @foreach (var label in allLabels)
+                    {
+                        <option value="@label.Id">@label.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Engagement</label>
+                <select class="form-select form-select-sm" @bind="engagementFilter" @bind:after="ReloadAsync">
+                    <option value="">Any engagement</option>
+                    <option value="ActiveLast30Days">Active last 30 days</option>
+                    <option value="NeverOpenedEmail">Never opened email</option>
+                    <option value="OpenedOverHalf">Opened &gt;50% of emails</option>
+                    <option value="InactiveLast90Days">No activity last 90 days</option>
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by name or email…"
+                       @bind="searchQuery" @bind:event="oninput" @bind:after="OnSearchChanged" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions -->
+@if (selectedIds.Count > 0)
+{
+    <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 py-2">
+        <strong>@selectedIds.Count selected</strong>
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"
+                    disabled="@bulkBusy">
+                <i class="bi bi-tag-fill me-1"></i>Add label
+            </button>
+            <ul class="dropdown-menu">
+                @if (allLabels.Count == 0)
+                {
+                    <li><span class="dropdown-item-text text-muted small">No labels available</span></li>
+                }
+                else
+                {
+                    @foreach (var label in allLabels)
+                    {
+                        var labelId = label.Id;
+                        <li>
+                            <button class="dropdown-item" type="button"
+                                    @onclick="() => BulkAddLabelAsync(labelId)">@label.Name</button>
+                        </li>
+                    }
+                }
+            </ul>
+        </div>
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-danger dropdown-toggle" data-bs-toggle="dropdown"
+                    disabled="@bulkBusy">
+                <i class="bi bi-tag me-1"></i>Remove label
+            </button>
+            <ul class="dropdown-menu">
+                @if (allLabels.Count == 0)
+                {
+                    <li><span class="dropdown-item-text text-muted small">No labels available</span></li>
+                }
+                else
+                {
+                    @foreach (var label in allLabels)
+                    {
+                        var labelId = label.Id;
+                        <li>
+                            <button class="dropdown-item" type="button"
+                                    @onclick="() => BulkRemoveLabelAsync(labelId)">@label.Name</button>
+                        </li>
+                    }
+                }
+            </ul>
+        </div>
+        @if (bulkBusy)
+        {
+            <span class="spinner-border spinner-border-sm text-muted"></span>
+        }
+        <button class="btn btn-sm btn-link text-muted ms-auto" @onclick="ClearSelection">Clear</button>
+    </div>
+}
+
+<!-- Members Table -->
+@if (result is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (result.Items.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-people display-4 d-block mb-2"></i>
+            No members found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th>Member</th>
+                        <th>Email</th>
+                        <th>Labels</th>
+                        <th>Status</th>
+                        <th>Emails</th>
+                        <th>Open rate</th>
+                        <th>Joined</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var member in result.Items)
+                    {
+                        <tr style="cursor: pointer" @onclick="() => NavigateToMember(member.Id)">
+                            <td @onclick:stopPropagation="true">
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(member.Id)"
+                                       @onchange="() => ToggleSelection(member.Id)" />
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="member-avatar rounded-circle d-flex align-items-center justify-content-center overflow-hidden"
+                                         style="width:32px;height:32px;background:#6c757d;color:#fff;font-size:0.8rem;flex-shrink:0">
+                                        @if (!string.IsNullOrEmpty(member.AvatarImage))
+                                        {
+                                            <img src="@member.AvatarImage" alt=""
+                                                 style="width:100%;height:100%;object-fit:cover" />
+                                        }
+                                        else
+                                        {
+                                            @(GetInitial(member))
+                                        }
+                                    </div>
+                                    <span class="fw-medium text-truncate" style="max-width: 180px">
+                                        @(member.Name ?? "—")
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="text-muted small">@member.Email</td>
+                            <td>
+                                @foreach (var ml in member.MembersLabels.Take(3))
+                                {
+                                    <span class="badge bg-light text-dark border me-1">@ml.Label.Name</span>
+                                }
+                                @if (member.MembersLabels.Count > 3)
+                                {
+                                    <span class="badge bg-secondary">+@(member.MembersLabels.Count - 3)</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @GetStatusBadge(member.Status)">@member.Status</span>
+                            </td>
+                            <td class="text-muted small">@member.EmailCount</td>
+                            <td class="text-muted small">
+                                @(member.EmailOpenRate.HasValue ? $"{member.EmailOpenRate}%" : "—")
+                            </td>
+                            <td class="text-muted small text-nowrap">
+                                @member.CreatedAt.ToString("MMM d, yyyy")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    @if (result.TotalPages > 1)
+    {
+        <nav class="mt-3 d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                Showing @((result.Page - 1) * result.PageSize + 1)–@Math.Min(result.Page * result.PageSize, result.TotalCount)
+                of @result.TotalCount members
+            </small>
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item @(result.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => GoToPageAsync(currentPage - 1)" disabled="@(!result.HasPreviousPage)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                </li>
+                @for (int i = PageRangeStart; i <= PageRangeEnd; i++)
+                {
+                    var pageNum = i;
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => GoToPageAsync(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(result.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => GoToPageAsync(currentPage + 1)" disabled="@(!result.HasNextPage)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </li>
+            </ul>
+        </nav>
+    }
+    else
+    {
+        <div class="mt-3">
+            <small class="text-muted">@result.TotalCount member(s)</small>
+        </div>
+    }
+}
+
+@if (showImportDialog)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Import members from CSV</h5>
+                    <button type="button" class="btn-close" @onclick="CloseImportDialog" disabled="@importing"></button>
+                </div>
+                <div class="modal-body">
+                    @if (importResult is null)
+                    {
+                        <p class="text-muted small">
+                            Upload a CSV file with a header row. Supported columns:
+                            <code>email</code> (required), <code>name</code>, <code>status</code>
+                            (<em>free</em>, <em>paid</em>, <em>comped</em>), <code>labels</code>
+                            (separated by <code>;</code> or <code>|</code>),
+                            <code>subscribed_to_emails</code> (true/false),
+                            <code>complimentary_plan</code> (true/false),
+                            <code>stripe_customer_id</code>.
+                        </p>
+                        <p class="text-muted small mb-3">
+                            Duplicates (by email) are skipped. Invalid emails are reported. Maximum file size: 10 MB.
+                        </p>
+                        <InputFile OnChange="ImportFileSelectedAsync" accept=".csv,text/csv" class="form-control"
+                                   disabled="@importing" />
+                        @if (importing)
+                        {
+                            <div class="d-flex align-items-center gap-2 mt-3 text-muted small">
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Importing…</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(importError))
+                        {
+                            <div class="alert alert-danger mt-3 mb-0">@importError</div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="row g-2 mb-3">
+                            <div class="col-6 col-md-3">
+                                <div class="card text-center"><div class="card-body py-2">
+                                    <div class="text-muted small">Imported</div>
+                                    <div class="fs-4 fw-bold text-success">@importResult.Imported</div>
+                                </div></div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="card text-center"><div class="card-body py-2">
+                                    <div class="text-muted small">Skipped</div>
+                                    <div class="fs-4 fw-bold">@importResult.SkippedDuplicates</div>
+                                </div></div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="card text-center"><div class="card-body py-2">
+                                    <div class="text-muted small">Failed</div>
+                                    <div class="fs-4 fw-bold text-danger">@importResult.Failed</div>
+                                </div></div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="card text-center"><div class="card-body py-2">
+                                    <div class="text-muted small">Total rows</div>
+                                    <div class="fs-4 fw-bold">@importResult.TotalRows</div>
+                                </div></div>
+                            </div>
+                        </div>
+                        <div class="text-muted small mb-3">
+                            @importResult.LabelsCreated new label(s) created.
+                            @importResult.StripeCustomersLinked Stripe customer(s) linked.
+                        </div>
+                        @if (importResult.Errors.Count > 0)
+                        {
+                            <h6>Errors / notices (@importResult.Errors.Count)</h6>
+                            <div class="table-responsive" style="max-height:300px;overflow:auto">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                        <tr><th style="width:80px">Line</th><th>Email</th><th>Message</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var err in importResult.Errors)
+                                        {
+                                            <tr>
+                                                <td class="text-muted small">@(err.LineNumber > 0 ? err.LineNumber.ToString() : "—")</td>
+                                                <td class="text-muted small">@(err.Email ?? "—")</td>
+                                                <td class="small">@err.Message</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (importResult is not null)
+                    {
+                        <button type="button" class="btn btn-outline-secondary" @onclick="ResetImportDialog">Import another file</button>
+                    }
+                    <button type="button" class="btn btn-secondary" @onclick="CloseImportDialog" disabled="@importing">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showSaveSegmentDialog)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-bookmark-plus me-2"></i>Save filter as segment</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSaveSegmentDialog" disabled="@segmentBusy"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">
+                        Save the current filter combination so it's available as a quick chip
+                        above the member table.
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Segment name</label>
+                        <input type="text" class="form-control" maxlength="191"
+                               @bind="newSegmentName" @bind:event="oninput"
+                               placeholder="e.g. Engaged Free Members" disabled="@segmentBusy" />
+                    </div>
+                    <div class="small text-muted">
+                        Current filters: @DescribeCurrentFilters()
+                    </div>
+                    @if (!string.IsNullOrEmpty(segmentError))
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">@segmentError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseSaveSegmentDialog" disabled="@segmentBusy">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveSegmentAsync"
+                            disabled="@(segmentBusy || string.IsNullOrWhiteSpace(newSegmentName))">
+                        @if (segmentBusy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Save segment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<Member>? result;
+    private List<Label> allLabels = [];
+    private List<MemberSegment> segments = [];
+    private string? activeSegmentId;
+
+    // Save-segment modal
+    private bool showSaveSegmentDialog;
+    private bool segmentBusy;
+    private string newSegmentName = "";
+    private string? segmentError;
+
+    // Counts
+    private int totalCount;
+    private int freeCount;
+    private int paidCount;
+    private int compedCount;
+
+    // Filters
+    private string statusFilter = "";
+    private string labelFilter = "";
+    private string engagementFilter = "";
+    private string searchQuery = "";
+    private CancellationTokenSource? searchCts;
+
+    // Pagination
+    private int currentPage = 1;
+    private const int PageSize = 25;
+
+    // Status
+    private string? statusMessage;
+    private bool isError;
+    private bool exporting;
+
+    // Import
+    private bool showImportDialog;
+    private bool importing;
+    private MemberImportResult? importResult;
+    private string? importError;
+    private const long MaxImportBytes = 10 * 1024 * 1024; // 10 MB
+
+    // Bulk selection
+    private HashSet<string> selectedIds = [];
+    private bool bulkBusy;
+
+    private bool allSelected => result is { Items.Count: > 0 }
+        && result.Items.All(m => selectedIds.Contains(m.Id));
+
+    private int PageRangeStart => Math.Max(1, currentPage - 2);
+    private int PageRangeEnd => Math.Min(result?.TotalPages ?? 1, currentPage + 2);
+
+    protected override async Task OnInitializedAsync()
+    {
+        allLabels = await LabelRepository.GetAllAsync();
+        segments = await SegmentRepository.GetAllAsync();
+        await LoadCountsAsync();
+        await LoadMembersAsync();
+    }
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrEmpty(statusFilter) ||
+        !string.IsNullOrEmpty(labelFilter) ||
+        !string.IsNullOrEmpty(engagementFilter) ||
+        !string.IsNullOrWhiteSpace(searchQuery);
+
+    private bool MatchesSegment(MemberSegment s) =>
+        (s.StatusFilter ?? "") == (statusFilter ?? "") &&
+        (s.LabelId ?? "") == (labelFilter ?? "") &&
+        (s.EngagementFilter ?? "") == (engagementFilter ?? "") &&
+        (s.SearchQuery ?? "") == (searchQuery ?? "");
+
+    private void RecomputeActiveSegment()
+    {
+        var match = segments.FirstOrDefault(MatchesSegment);
+        activeSegmentId = match?.Id;
+    }
+
+    private async Task ApplySegmentAsync(MemberSegment s)
+    {
+        statusFilter = s.StatusFilter ?? "";
+        labelFilter = s.LabelId ?? "";
+        engagementFilter = s.EngagementFilter ?? "";
+        searchQuery = s.SearchQuery ?? "";
+        activeSegmentId = s.Id;
+        currentPage = 1;
+        await LoadMembersAsync();
+    }
+
+    private void OpenSaveSegmentDialog()
+    {
+        if (!HasActiveFilters) return;
+        showSaveSegmentDialog = true;
+        newSegmentName = "";
+        segmentError = null;
+    }
+
+    private void CloseSaveSegmentDialog()
+    {
+        if (segmentBusy) return;
+        showSaveSegmentDialog = false;
+        newSegmentName = "";
+        segmentError = null;
+    }
+
+    private async Task SaveSegmentAsync()
+    {
+        if (segmentBusy) return;
+        var name = newSegmentName.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            segmentError = "Name is required.";
+            return;
+        }
+        if (segments.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            segmentError = "A segment with that name already exists.";
+            return;
+        }
+
+        segmentBusy = true;
+        segmentError = null;
+        try
+        {
+            var segment = new MemberSegment
+            {
+                Id = HowToSoftware.Core.Utilities.ObjectIdGenerator.New(),
+                Name = name,
+                StatusFilter = string.IsNullOrEmpty(statusFilter) ? null : statusFilter,
+                LabelId = string.IsNullOrEmpty(labelFilter) ? null : labelFilter,
+                EngagementFilter = string.IsNullOrEmpty(engagementFilter) ? null : engagementFilter,
+                SearchQuery = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery,
+                SortOrder = segments.Count == 0 ? 0 : segments.Max(x => x.SortOrder) + 1,
+                CreatedAt = DateTime.UtcNow,
+            };
+            await SegmentRepository.AddAsync(segment);
+            segments = await SegmentRepository.GetAllAsync();
+            activeSegmentId = segment.Id;
+            showSaveSegmentDialog = false;
+            statusMessage = $"Saved segment \"{segment.Name}\".";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            segmentError = $"Failed to save segment: {ex.Message}";
+        }
+        finally
+        {
+            segmentBusy = false;
+        }
+    }
+
+    private async Task DeleteSegmentAsync(MemberSegment s)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Delete segment \"{s.Name}\"?");
+        if (!confirmed) return;
+        try
+        {
+            await SegmentRepository.DeleteAsync(s.Id);
+            segments = await SegmentRepository.GetAllAsync();
+            if (activeSegmentId == s.Id) activeSegmentId = null;
+            statusMessage = $"Deleted segment \"{s.Name}\".";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to delete segment: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    private string DescribeSegment(MemberSegment s)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(s.StatusFilter)) parts.Add($"status={s.StatusFilter}");
+        if (!string.IsNullOrEmpty(s.LabelId))
+        {
+            var label = allLabels.FirstOrDefault(l => l.Id == s.LabelId);
+            parts.Add($"label={(label?.Name ?? s.LabelId)}");
+        }
+        if (!string.IsNullOrEmpty(s.EngagementFilter)) parts.Add($"engagement={s.EngagementFilter}");
+        if (!string.IsNullOrEmpty(s.SearchQuery)) parts.Add($"search=\"{s.SearchQuery}\"");
+        return parts.Count == 0 ? "(no filters)" : string.Join(", ", parts);
+    }
+
+    private string DescribeCurrentFilters()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(statusFilter)) parts.Add($"status={statusFilter}");
+        if (!string.IsNullOrEmpty(labelFilter))
+        {
+            var label = allLabels.FirstOrDefault(l => l.Id == labelFilter);
+            parts.Add($"label={(label?.Name ?? labelFilter)}");
+        }
+        if (!string.IsNullOrEmpty(engagementFilter)) parts.Add($"engagement={engagementFilter}");
+        if (!string.IsNullOrWhiteSpace(searchQuery)) parts.Add($"search=\"{searchQuery}\"");
+        return parts.Count == 0 ? "(no filters)" : string.Join(", ", parts);
+    }
+
+    private async Task LoadCountsAsync()
+    {
+        totalCount = await MemberRepository.GetCountAsync(null);
+        freeCount = await MemberRepository.GetCountAsync("free");
+        paidCount = await MemberRepository.GetCountAsync("paid");
+        compedCount = await MemberRepository.GetCountAsync("comped");
+    }
+
+    private async Task LoadMembersAsync()
+    {
+        var status = string.IsNullOrEmpty(statusFilter) ? null : statusFilter;
+        var search = string.IsNullOrEmpty(searchQuery) ? null : searchQuery;
+        var label = string.IsNullOrEmpty(labelFilter) ? null : labelFilter;
+        var engagement = ParseEngagement(engagementFilter);
+
+        result = await MemberRepository.GetAllAsync(status, search, label, currentPage, PageSize, engagement);
+        RecomputeActiveSegment();
+    }
+
+    private static MemberEngagementFilter? ParseEngagement(string value)
+        => Enum.TryParse<MemberEngagementFilter>(value, out var e) ? e : null;
+
+    private async Task ReloadAsync()
+    {
+        currentPage = 1;
+        await LoadMembersAsync();
+    }
+
+    private async Task OnSearchChanged()
+    {
+        searchCts?.Cancel();
+        searchCts = new CancellationTokenSource();
+        var token = searchCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            if (!token.IsCancellationRequested)
+            {
+                currentPage = 1;
+                await LoadMembersAsync();
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > (result?.TotalPages ?? 1)) return;
+        currentPage = page;
+        await LoadMembersAsync();
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        exporting = true;
+        try
+        {
+            var status = string.IsNullOrEmpty(statusFilter) ? null : statusFilter;
+            var label = string.IsNullOrEmpty(labelFilter) ? null : labelFilter;
+            var engagement = ParseEngagement(engagementFilter);
+            var members = await MemberRepository.GetAllForExportAsync(status, label, engagement);
+
+            var sb = new StringBuilder();
+            sb.AppendLine("id,email,name,status,note,email_count,email_opened_count,email_open_rate,created_at,labels,newsletters");
+
+            foreach (var m in members)
+            {
+                var labels = string.Join("; ", m.MembersLabels.Select(ml => ml.Label.Name));
+                var newsletters = string.Join("; ", m.MembersNewsletters.Select(mn => mn.Newsletter.Name));
+
+                sb.Append(CsvEscape(m.Id)).Append(',');
+                sb.Append(CsvEscape(m.Email)).Append(',');
+                sb.Append(CsvEscape(m.Name ?? "")).Append(',');
+                sb.Append(CsvEscape(m.Status)).Append(',');
+                sb.Append(CsvEscape(m.Note ?? "")).Append(',');
+                sb.Append(m.EmailCount).Append(',');
+                sb.Append(m.EmailOpenedCount).Append(',');
+                sb.Append(m.EmailOpenRate?.ToString() ?? "").Append(',');
+                sb.Append(m.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")).Append(',');
+                sb.Append(CsvEscape(labels)).Append(',');
+                sb.Append(CsvEscape(newsletters));
+                sb.AppendLine();
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadCsv", $"members-{DateTime.UtcNow:yyyyMMdd}.csv", base64);
+
+            statusMessage = $"Exported {members.Count} members.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Export failed: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            exporting = false;
+        }
+    }
+
+    private void NavigateToMember(string memberId) =>
+        Navigation.NavigateTo($"members/{memberId}");
+
+    private void OpenImportDialog()
+    {
+        showImportDialog = true;
+        importResult = null;
+        importError = null;
+    }
+
+    private void CloseImportDialog()
+    {
+        if (importing) return;
+        showImportDialog = false;
+        importResult = null;
+        importError = null;
+    }
+
+    private void ResetImportDialog()
+    {
+        importResult = null;
+        importError = null;
+    }
+
+    private async Task ImportFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        if (importing) return;
+        var file = e.File;
+        if (file is null) return;
+
+        if (file.Size > MaxImportBytes)
+        {
+            importError = $"File is too large ({file.Size:N0} bytes). Maximum is {MaxImportBytes:N0} bytes.";
+            return;
+        }
+
+        importing = true;
+        importError = null;
+        importResult = null;
+        try
+        {
+            string csv;
+            using (var stream = file.OpenReadStream(MaxImportBytes))
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                csv = await reader.ReadToEndAsync();
+            }
+
+            importResult = await MemberImportService.ImportAsync(csv);
+
+            // Refresh members list and counts to reflect new rows.
+            await LoadCountsAsync();
+            await LoadMembersAsync();
+
+            statusMessage = $"Imported {importResult.Imported} member(s); skipped {importResult.SkippedDuplicates}; failed {importResult.Failed}.";
+            isError = importResult.Failed > 0;
+        }
+        catch (Exception ex)
+        {
+            importError = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            importing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (result is null) return;
+        if (allSelected)
+        {
+            foreach (var m in result.Items)
+                selectedIds.Remove(m.Id);
+        }
+        else
+        {
+            foreach (var m in result.Items)
+                selectedIds.Add(m.Id);
+        }
+    }
+
+    private void ClearSelection() => selectedIds.Clear();
+
+    private async Task BulkAddLabelAsync(string labelId)
+    {
+        if (selectedIds.Count == 0 || bulkBusy) return;
+        bulkBusy = true;
+        try
+        {
+            var ids = selectedIds.ToList();
+            foreach (var memberId in ids)
+            {
+                await MemberRepository.AddLabelToMemberAsync(memberId, labelId);
+            }
+            var labelName = allLabels.FirstOrDefault(l => l.Id == labelId)?.Name ?? "label";
+            statusMessage = $"Added label \"{labelName}\" to {ids.Count} member(s).";
+            isError = false;
+            await LoadMembersAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to add label: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            bulkBusy = false;
+        }
+    }
+
+    private async Task BulkRemoveLabelAsync(string labelId)
+    {
+        if (selectedIds.Count == 0 || bulkBusy) return;
+        bulkBusy = true;
+        try
+        {
+            var ids = selectedIds.ToList();
+            foreach (var memberId in ids)
+            {
+                await MemberRepository.RemoveLabelFromMemberAsync(memberId, labelId);
+            }
+            var labelName = allLabels.FirstOrDefault(l => l.Id == labelId)?.Name ?? "label";
+            statusMessage = $"Removed label \"{labelName}\" from {ids.Count} member(s).";
+            isError = false;
+            await LoadMembersAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to remove label: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            bulkBusy = false;
+        }
+    }
+
+    private static char GetInitial(Member member) =>
+        member.Name?.Length > 0 ? char.ToUpper(member.Name[0]) : '?';
+
+    private static string GetStatusBadge(string status) => status switch
+    {
+        "free" => "bg-secondary",
+        "paid" => "bg-success",
+        "comped" => "bg-info",
+        _ => "bg-secondary",
+    };
+
+    private static string CsvEscape(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

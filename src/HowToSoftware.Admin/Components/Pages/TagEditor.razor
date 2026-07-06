@@ -1,0 +1,575 @@
+@page "/tags/new"
+@page "/tags/{TagId}/edit"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator,Editor")]
+@inject ITagRepository TagRepository
+@inject ISlugGenerator SlugGenerator
+@inject IImageStorageService ImageStorage
+@inject IWebhookDispatchService WebhookDispatch
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>@(IsNew ? "New Tag" : $"Edit Tag — {name}") — HowToSoftware Admin</PageTitle>
+
+<!-- Top Bar -->
+<div class="editor-topbar">
+    <div class="d-flex align-items-center gap-2">
+        <a href="tags" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Tags
+        </a>
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="@(isError ? "text-danger" : "text-success") small">
+                <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+            </span>
+        }
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        @if (!IsNew)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true" disabled="@saving">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        }
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@saving">
+            @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check-lg me-1"></i>@(IsNew ? "Create" : "Save")
+        </button>
+    </div>
+</div>
+
+@if (!loaded)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Main Column -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-body">
+                    <!-- Name -->
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="name" placeholder="Tag name" />
+                    </div>
+
+                    <!-- Slug -->
+                    <div class="mb-3">
+                        <label class="form-label">Slug</label>
+                        <div class="input-group">
+                            <span class="input-group-text">/tag/</span>
+                            <input type="text" class="form-control" @bind="slug" placeholder="auto-generated" />
+                            <span class="input-group-text">/</span>
+                        </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="4" @bind="description"
+                                  placeholder="Tag description…"></textarea>
+                        <div class="form-text">Maximum 500 characters. @(description?.Length ?? 0)/500</div>
+                    </div>
+
+                    <!-- Feature Image -->
+                    <div class="mb-3">
+                        <label class="form-label">Feature image</label>
+                        @if (!string.IsNullOrEmpty(featureImage))
+                        {
+                            <div class="feature-image-preview">
+                                <img src="@featureImage" alt="Feature image" />
+                                <button class="btn btn-sm btn-danger feature-image-remove" @onclick="RemoveFeatureImage">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <label class="feature-image-upload">
+                                <InputFile OnChange="UploadFeatureImageAsync" accept="image/*" />
+                                <i class="bi bi-image me-2"></i>Add feature image
+                            </label>
+                        }
+                    </div>
+
+                    <!-- Visibility -->
+                    <div class="mb-3">
+                        <label class="form-label">Visibility</label>
+                        <select class="form-select" @bind="visibility">
+                            <option value="public">Public</option>
+                            <option value="internal">Internal</option>
+                        </select>
+                        <div class="form-text">Internal tags (starting with #) are hidden from the public site.</div>
+                    </div>
+
+                    <!-- Accent Color -->
+                    <div class="mb-0">
+                        <label class="form-label">Accent color</label>
+                        <div class="input-group" style="max-width: 240px">
+                            <input type="color" class="form-control form-control-color"
+                                   value="@(accentColor ?? "#7c3aed")"
+                                   @onchange="e => accentColor = e.Value?.ToString()" />
+                            <input type="text" class="form-control" @bind="accentColor" placeholder="#7c3aed" />
+                            @if (!string.IsNullOrEmpty(accentColor))
+                            {
+                                <button class="btn btn-outline-secondary" @onclick="() => accentColor = null">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEO / Meta -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Meta data</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showMeta = !showMeta">
+                        <i class="bi @(showMeta ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showMeta)
+                {
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label small">Meta title</label>
+                            <input type="text" class="form-control form-control-sm" @bind="metaTitle"
+                                   placeholder="@name" />
+                            <div class="form-text">Recommended: 60 characters. @(metaTitle?.Length ?? 0)/60</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">Meta description</label>
+                            <textarea class="form-control form-control-sm" rows="2" @bind="metaDescription"
+                                      placeholder="Search engine description…"></textarea>
+                            <div class="form-text">Recommended: 160 characters. @(metaDescription?.Length ?? 0)/160</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">Canonical URL</label>
+                            <input type="text" class="form-control form-control-sm" @bind="canonicalUrl"
+                                   placeholder="https://..." />
+                        </div>
+
+                        <!-- OG -->
+                        <div class="border-top pt-3 mt-3">
+                            <small class="text-muted fw-semibold">Facebook card</small>
+                        </div>
+                        <div class="mb-3 mt-2">
+                            <label class="form-label small">OG title</label>
+                            <input type="text" class="form-control form-control-sm" @bind="ogTitle" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">OG description</label>
+                            <textarea class="form-control form-control-sm" rows="2" @bind="ogDescription"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">OG image</label>
+                            @if (!string.IsNullOrEmpty(ogImage))
+                            {
+                                <div class="d-flex align-items-center gap-2">
+                                    <img src="@ogImage" alt="OG image" style="max-height: 60px; border-radius: 4px" />
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ogImage = null">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <InputFile OnChange="e => UploadMetaImageAsync(e, img => ogImage = img)" accept="image/*"
+                                           class="form-control form-control-sm" />
+                            }
+                        </div>
+
+                        <!-- Twitter -->
+                        <div class="border-top pt-3 mt-3">
+                            <small class="text-muted fw-semibold">X (Twitter) card</small>
+                        </div>
+                        <div class="mb-3 mt-2">
+                            <label class="form-label small">Twitter title</label>
+                            <input type="text" class="form-control form-control-sm" @bind="twitterTitle" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">Twitter description</label>
+                            <textarea class="form-control form-control-sm" rows="2" @bind="twitterDescription"></textarea>
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label small">Twitter image</label>
+                            @if (!string.IsNullOrEmpty(twitterImage))
+                            {
+                                <div class="d-flex align-items-center gap-2">
+                                    <img src="@twitterImage" alt="Twitter image" style="max-height: 60px; border-radius: 4px" />
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => twitterImage = null">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <InputFile OnChange="e => UploadMetaImageAsync(e, img => twitterImage = img)" accept="image/*"
+                                           class="form-control form-control-sm" />
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Code Injection -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Code injection</h6>
+                    <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                            @onclick="() => showCodeInjection = !showCodeInjection">
+                        <i class="bi @(showCodeInjection ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                </div>
+                @if (showCodeInjection)
+                {
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label small">Tag header</label>
+                            <textarea class="form-control form-control-sm font-monospace" rows="4"
+                                      @bind="codeinjectionHead" placeholder="&lt;style&gt;...&lt;/style&gt;"></textarea>
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label small">Tag footer</label>
+                            <textarea class="form-control form-control-sm font-monospace" rows="4"
+                                      @bind="codeinjectionFoot" placeholder="&lt;script&gt;...&lt;/script&gt;"></textarea>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            @if (!IsNew && tag is not null)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Tag details</h6>
+                        <dl class="small mb-0">
+                            <dt class="text-muted">ID</dt>
+                            <dd class="font-monospace small">@tag.Id</dd>
+
+                            <dt class="text-muted">Created</dt>
+                            <dd>@tag.CreatedAt.ToString("MMM d, yyyy HH:mm")</dd>
+
+                            @if (tag.UpdatedAt.HasValue)
+                            {
+                                <dt class="text-muted">Updated</dt>
+                                <dd>@tag.UpdatedAt.Value.ToString("MMM d, yyyy HH:mm")</dd>
+                            }
+
+                            <dt class="text-muted">Posts</dt>
+                            <dd>@postCount</dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <!-- Tag Usage Chart -->
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6>Posts per month</h6>
+                        <div style="height: 160px">
+                            <canvas id="tagUsageChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete tag</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the tag <strong>@name</strong>? It will be removed from all posts. This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? TagId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(TagId);
+
+    // State
+    private Tag? tag;
+    private bool loaded;
+    private bool saving;
+    private bool showMeta;
+    private bool showCodeInjection;
+    private bool showDeleteConfirm;
+    private string? statusMessage;
+    private bool isError;
+    private int postCount;
+    private List<(DateTime Month, int Count)> monthlyPostCounts = [];
+    private bool chartRendered;
+
+    // Form fields
+    private string name = "";
+    private string slug = "";
+    private string? description;
+    private string? featureImage;
+    private string visibility = "public";
+    private string? accentColor;
+    private string? metaTitle;
+    private string? metaDescription;
+    private string? canonicalUrl;
+    private string? ogTitle;
+    private string? ogDescription;
+    private string? ogImage;
+    private string? twitterTitle;
+    private string? twitterDescription;
+    private string? twitterImage;
+    private string? codeinjectionHead;
+    private string? codeinjectionFoot;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            tag = await TagRepository.GetByIdAsync(TagId!);
+            if (tag is null)
+            {
+                Navigation.NavigateTo("tags");
+                return;
+            }
+            LoadTagIntoForm(tag);
+            postCount = await TagRepository.GetPostCountAsync(tag.Id);
+            monthlyPostCounts = await TagRepository.GetMonthlyPostCountsAsync(tag.Id);
+        }
+        loaded = true;
+    }
+
+    private void LoadTagIntoForm(Tag t)
+    {
+        name = t.Name;
+        slug = t.Slug;
+        description = t.Description;
+        featureImage = t.FeatureImage;
+        visibility = t.Visibility;
+        accentColor = t.AccentColor;
+        metaTitle = t.MetaTitle;
+        metaDescription = t.MetaDescription;
+        canonicalUrl = t.CanonicalUrl;
+        ogTitle = t.OgTitle;
+        ogDescription = t.OgDescription;
+        ogImage = t.OgImage;
+        twitterTitle = t.TwitterTitle;
+        twitterDescription = t.TwitterDescription;
+        twitterImage = t.TwitterImage;
+        codeinjectionHead = t.CodeinjectionHead;
+        codeinjectionFoot = t.CodeinjectionFoot;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsNew && loaded && monthlyPostCounts.Count > 0 && !chartRendered)
+        {
+            chartRendered = true;
+            var labels = monthlyPostCounts.Select(m => m.Month.ToString("MMM yy")).ToArray();
+            var data = monthlyPostCounts.Select(m => m.Count).ToArray();
+            var color = accentColor ?? "#7c3aed";
+            var datasets = new[]
+            {
+                new
+                {
+                    label = "Posts",
+                    data,
+                    backgroundColor = color + "99",
+                    borderColor = color,
+                    borderWidth = 1,
+                    borderRadius = 3,
+                }
+            };
+            var options = new
+            {
+                plugins = new { legend = new { display = false } },
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        ticks = new { precision = 0, color = "#adb5bd" },
+                        grid = new { color = "rgba(255,255,255,0.05)" },
+                    },
+                    x = new
+                    {
+                        ticks = new { color = "#adb5bd" },
+                        grid = new { display = false },
+                    }
+                }
+            };
+            await JS.InvokeVoidAsync("analyticsCharts.createOrUpdate", "tagUsageChart", "bar", labels, datasets, options);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        statusMessage = null;
+        isError = false;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            statusMessage = "Name is required.";
+            isError = true;
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            var tagSlug = string.IsNullOrWhiteSpace(slug)
+                ? SlugGenerator.GenerateSlug(name)
+                : SlugGenerator.GenerateSlug(slug);
+
+            // Check for duplicate slug
+            var existing = await TagRepository.GetBySlugAsync(tagSlug);
+            if (existing is not null && existing.Id != (tag?.Id ?? ""))
+            {
+                // Append suffix
+                var baseSlug = tagSlug;
+                var counter = 2;
+                do
+                {
+                    tagSlug = $"{baseSlug}-{counter}";
+                    existing = await TagRepository.GetBySlugAsync(tagSlug);
+                    counter++;
+                } while (existing is not null && existing.Id != (tag?.Id ?? ""));
+            }
+
+            if (IsNew)
+            {
+                tag = new Tag
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = name.Trim(),
+                    Slug = tagSlug,
+                    Description = TrimOrNull(description),
+                    FeatureImage = featureImage,
+                    Visibility = visibility,
+                    AccentColor = TrimOrNull(accentColor),
+                    MetaTitle = TrimOrNull(metaTitle),
+                    MetaDescription = TrimOrNull(metaDescription),
+                    CanonicalUrl = TrimOrNull(canonicalUrl),
+                    OgTitle = TrimOrNull(ogTitle),
+                    OgDescription = TrimOrNull(ogDescription),
+                    OgImage = ogImage,
+                    TwitterTitle = TrimOrNull(twitterTitle),
+                    TwitterDescription = TrimOrNull(twitterDescription),
+                    TwitterImage = twitterImage,
+                    CodeinjectionHead = TrimOrNull(codeinjectionHead),
+                    CodeinjectionFoot = TrimOrNull(codeinjectionFoot),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                };
+                await TagRepository.AddAsync(tag);
+                WebhookDispatch.Enqueue("tag.added", new { id = tag.Id, name = tag.Name, slug = tag.Slug });
+                statusMessage = "Tag created!";
+                Navigation.NavigateTo($"tags/{tag.Id}/edit", replace: true);
+            }
+            else
+            {
+                tag!.Name = name.Trim();
+                tag.Slug = tagSlug;
+                tag.Description = TrimOrNull(description);
+                tag.FeatureImage = featureImage;
+                tag.Visibility = visibility;
+                tag.AccentColor = TrimOrNull(accentColor);
+                tag.MetaTitle = TrimOrNull(metaTitle);
+                tag.MetaDescription = TrimOrNull(metaDescription);
+                tag.CanonicalUrl = TrimOrNull(canonicalUrl);
+                tag.OgTitle = TrimOrNull(ogTitle);
+                tag.OgDescription = TrimOrNull(ogDescription);
+                tag.OgImage = ogImage;
+                tag.TwitterTitle = TrimOrNull(twitterTitle);
+                tag.TwitterDescription = TrimOrNull(twitterDescription);
+                tag.TwitterImage = twitterImage;
+                tag.CodeinjectionHead = TrimOrNull(codeinjectionHead);
+                tag.CodeinjectionFoot = TrimOrNull(codeinjectionFoot);
+                tag.UpdatedAt = DateTime.UtcNow;
+                await TagRepository.UpdateAsync(tag);
+                WebhookDispatch.Enqueue("tag.edited", new { id = tag.Id, name = tag.Name, slug = tag.Slug });
+                statusMessage = "Tag saved!";
+                slug = tag.Slug; // update displayed slug
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (tag is null) return;
+        await TagRepository.DeleteAsync(tag.Id);
+        WebhookDispatch.Enqueue("tag.deleted", new { id = tag.Id, name = tag.Name, slug = tag.Slug });
+        Navigation.NavigateTo("tags");
+    }
+
+    private async Task UploadFeatureImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        featureImage = result.Url;
+    }
+
+    private void RemoveFeatureImage() => featureImage = null;
+
+    private async Task UploadMetaImageAsync(InputFileChangeEventArgs e, Action<string> setter)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+        setter(result.Url);
+    }
+
+    private static string? TrimOrNull(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

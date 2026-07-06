@@ -1,0 +1,213 @@
+﻿@using System.Security.Claims
+@using HowToSoftware.Core.Interfaces
+@using Microsoft.Extensions.DependencyInjection
+@inject IServiceScopeFactory ScopeFactory
+
+<div class="sidebar-brand">
+    <a href="/">
+        <i class="bi bi-terminal-fill brand-icon"></i>
+        <span>HowToSoftware</span>
+    </a>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="sidebar-toggler" />
+
+<div class="sidebar-body">
+    <nav class="sidebar-nav">
+        <div class="nav-item">
+            <NavLink href="" Match="NavLinkMatch.All">
+                <i class="bi bi-grid-1x2-fill"></i> Dashboard
+            </NavLink>
+        </div>
+
+        <div class="nav-heading">Content</div>
+
+        <div class="nav-item">
+            <NavLink href="posts">
+                <i class="bi bi-file-earmark-text-fill"></i> Posts
+            </NavLink>
+        </div>
+
+        <div class="nav-item">
+            <NavLink href="pages">
+                <i class="bi bi-file-earmark-fill"></i> Pages
+            </NavLink>
+        </div>
+
+        <AuthorizeView Roles="Owner,Administrator,Editor">
+            <div class="nav-item">
+                <NavLink href="tags">
+                    <i class="bi bi-tags-fill"></i> Tags
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator,Editor">
+            <div class="nav-item">
+                <NavLink href="collections">
+                    <i class="bi bi-collection-fill"></i> Collections
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator,Editor">
+            <div class="nav-item">
+                <NavLink href="snippets">
+                    <i class="bi bi-braces"></i> Snippets
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator">
+            <div class="nav-item">
+                <NavLink href="redirects">
+                    <i class="bi bi-signpost-split"></i> Redirects
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator">
+            <div class="nav-item">
+                <NavLink href="mentions">
+                    <i class="bi bi-chat-quote"></i> Mentions
+                    @if (pendingMentionCount > 0)
+                    {
+                        <span class="badge bg-danger rounded-pill ms-2"
+                              title="@pendingMentionCount pending mention@(pendingMentionCount == 1 ? "" : "s") awaiting review">
+                            @(pendingMentionCount > 99 ? "99+" : pendingMentionCount.ToString())
+                        </span>
+                    }
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator">
+            <div class="nav-item">
+                <NavLink href="analytics">
+                    <i class="bi bi-graph-up"></i> Analytics
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator">
+            <div class="nav-heading">Members</div>
+
+            <div class="nav-item">
+                <NavLink href="members">
+                    <i class="bi bi-people-fill"></i> Members
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="newsletters">
+                    <i class="bi bi-envelope-fill"></i> Newsletters
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="automated-emails">
+                    <i class="bi bi-lightning-fill"></i> Automated Emails
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="tiers">
+                    <i class="bi bi-layers-fill"></i> Tiers
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="offers">
+                    <i class="bi bi-ticket-perforated-fill"></i> Offers
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="donations">
+                    <i class="bi bi-heart-fill"></i> Donations
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="recommendations">
+                    <i class="bi bi-hand-thumbs-up-fill"></i> Recommendations
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="Owner,Administrator">
+            <div class="nav-heading">Settings</div>
+
+            <div class="nav-item">
+                <NavLink href="settings">
+                    <i class="bi bi-gear-fill"></i> General
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="staff">
+                    <i class="bi bi-person-badge-fill"></i> Staff
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="integrations">
+                    <i class="bi bi-plug-fill"></i> Integrations
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="indexnow">
+                    <i class="bi bi-search"></i> IndexNow
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink href="import-export">
+                    <i class="bi bi-arrow-left-right"></i> Import/Export
+                </NavLink>
+            </div>
+        </AuthorizeView>
+    </nav>
+
+    <div class="sidebar-footer">
+        <AuthorizeView>
+            <div class="user-info">
+                <i class="bi bi-person-circle"></i>
+                <span>@context.User.FindFirst(ClaimTypes.Name)?.Value</span>
+            </div>
+            <a href="/account/logout" class="sign-out">
+                <i class="bi bi-box-arrow-left"></i> Sign out
+            </a>
+        </AuthorizeView>
+    </div>
+</div>
+
+@code {
+    private int pendingMentionCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Use an isolated DI scope so the badge query gets its own AppDbContext.
+        // The shared per-circuit scoped DbContext is being used concurrently by
+        // the page component's OnInitializedAsync, which would otherwise trigger
+        // "A second operation was started on this context instance".
+        // Failures (e.g. DB blip) must not break the sidebar — every page renders
+        // this component.
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var mentionService = scope.ServiceProvider.GetRequiredService<IMentionService>();
+            pendingMentionCount = await mentionService.GetPendingCountAsync();
+        }
+        catch
+        {
+            pendingMentionCount = 0;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

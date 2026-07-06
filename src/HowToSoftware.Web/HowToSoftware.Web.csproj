@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup>  <UserSecretsId>648a85d7-4f0b-4b2c-9213-625cc425e414</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HowToSoftware.Core\HowToSoftware.Core.csproj" />
+    <ProjectReference Include="..\HowToSoftware.Infrastructure\HowToSoftware.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

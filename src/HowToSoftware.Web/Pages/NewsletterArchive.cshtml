@@ -1,0 +1,75 @@
+@page "/newsletter/{slug}/archive"
+@model NewsletterArchiveModel
+@{
+    var newsletter = Model.Newsletter;
+}
+
+<main id="site-main" class="site-main outer">
+<div class="inner posts">
+
+    <div class="post-feed">
+
+        @* ── Newsletter profile card (large) ── *@
+        <section class="post-card post-card-large">
+            <div class="post-card-content">
+            <div class="post-card-content-link">
+                <header class="post-card-header">
+                    <h2 class="post-card-title">@newsletter.Name</h2>
+                </header>
+                <div class="post-card-excerpt">
+                    @if (!string.IsNullOrEmpty(newsletter.Description))
+                    {
+                        @newsletter.Description
+                    }
+                    else
+                    {
+                        <text>An archive of past editions.</text>
+                    }
+                </div>
+            </div>
+            </div>
+        </section>
+
+        @* ── Sent editions ── *@
+        @if (Model.PostCards.Count == 0)
+        {
+            <section class="post-card no-image">
+                <div class="post-card-content">
+                    <div class="post-card-content-link">
+                        <div class="post-card-excerpt">
+                            <p>No editions have been published yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }
+        else
+        {
+            foreach (var card in Model.PostCards)
+            {
+                <partial name="_PostCard" model="card" />
+            }
+        }
+
+    </div>
+
+    @* ── Pagination ── *@
+    @{
+        var pagination = new HowToSoftware.Web.Models.PaginationViewModel
+        {
+            CurrentPage = Model.CurrentPage,
+            TotalPages = Model.TotalPages,
+            HasPreviousPage = Model.HasPreviousPage,
+            HasNextPage = Model.HasNextPage,
+            BaseUrl = "/newsletter/" + newsletter.Slug + "/archive/"
+        };
+    }
+    <partial name="_Pagination" model="pagination" />
+
+</div>
+</main>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

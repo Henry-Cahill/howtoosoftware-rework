@@ -1,0 +1,196 @@
+@page "/newsletters"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject INewsletterRepository NewsletterRepository
+@rendermode InteractiveServer
+
+<PageTitle>Newsletters — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Newsletters</h1>
+    <a href="newsletters/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New newsletter</a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0 small text-muted">Status</label>
+                <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="ApplyFilters">
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="col">
+                <label class="form-label mb-0 small text-muted">Search</label>
+                <input type="text" class="form-control form-control-sm" placeholder="Search by name…"
+                       @bind="searchQuery" @bind:after="ApplyFilters" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Newsletters Table -->
+@if (allNewsletters is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (filteredNewsletters.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-envelope display-4 d-block mb-2"></i>
+            No newsletters found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" @onclick='() => ToggleSort("name")'>
+                            Newsletter
+                            @if (sortColumn == "name") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("subscribers")'>
+                            Subscribers
+                            @if (sortColumn == "subscribers") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th>Status</th>
+                        <th class="sortable-header" @onclick='() => ToggleSort("created")'>
+                            Created
+                            @if (sortColumn == "created") { <i class="bi @SortIcon"></i> }
+                        </th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var nl in filteredNewsletters)
+                    {
+                        <tr>
+                            <td>
+                                <a href="newsletters/@nl.Id/edit" class="fw-medium text-decoration-none text-body">
+                                    @nl.Name
+                                </a>
+                                @if (!string.IsNullOrEmpty(nl.Description))
+                                {
+                                    <span class="text-muted small d-none d-md-inline">
+                                        — @Truncate(nl.Description, 60)
+                                    </span>
+                                }
+                            </td>
+                            <td class="text-muted small">
+                                @(subscriberCounts.GetValueOrDefault(nl.Id, 0))
+                            </td>
+                            <td>
+                                <span class="badge @(nl.Status == "active" ? "bg-success" : "bg-secondary")">
+                                    @nl.Status
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                @nl.CreatedAt.ToString("MMM d, yyyy")
+                            </td>
+                            <td class="text-end">
+                                <a href="newsletters/@nl.Id/analytics" class="btn btn-sm btn-outline-secondary" title="View analytics">
+                                    <i class="bi bi-bar-chart"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@filteredNewsletters.Count newsletter(s)</small>
+    </div>
+}
+
+@code {
+    private List<Newsletter>? allNewsletters;
+    private List<Newsletter> filteredNewsletters = [];
+    private Dictionary<string, int> subscriberCounts = [];
+
+    // Filters
+    private string statusFilter = "";
+    private string searchQuery = "";
+
+    // Sorting
+    private string sortColumn = "name";
+    private bool sortAscending = true;
+
+    private string SortIcon => sortAscending ? "bi-caret-up-fill" : "bi-caret-down-fill";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNewslettersAsync();
+    }
+
+    private async Task LoadNewslettersAsync()
+    {
+        allNewsletters = await NewsletterRepository.GetAllAsync();
+
+        subscriberCounts = [];
+        foreach (var nl in allNewsletters)
+        {
+            subscriberCounts[nl.Id] = await NewsletterRepository.GetSubscriberCountAsync(nl.Id);
+        }
+
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (allNewsletters is null) return;
+
+        var filtered = allNewsletters.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(statusFilter))
+            filtered = filtered.Where(n => n.Status == statusFilter);
+
+        if (!string.IsNullOrEmpty(searchQuery))
+            filtered = filtered.Where(n => n.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        filtered = sortColumn switch
+        {
+            "subscribers" => sortAscending
+                ? filtered.OrderBy(n => subscriberCounts.GetValueOrDefault(n.Id, 0))
+                : filtered.OrderByDescending(n => subscriberCounts.GetValueOrDefault(n.Id, 0)),
+            "created" => sortAscending
+                ? filtered.OrderBy(n => n.CreatedAt)
+                : filtered.OrderByDescending(n => n.CreatedAt),
+            _ => sortAscending
+                ? filtered.OrderBy(n => n.Name)
+                : filtered.OrderByDescending(n => n.Name),
+        };
+
+        filteredNewsletters = filtered.ToList();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column is "name";
+        }
+        ApplyFilters();
+    }
+
+    private static string Truncate(string text, int maxLength)
+        => text.Length <= maxLength ? text : string.Concat(text.AsSpan(0, maxLength), "…");
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

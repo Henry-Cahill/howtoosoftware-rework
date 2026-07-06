@@ -1,0 +1,136 @@
+@* 400 Bad Request — ported from error-400.hbs *@
+
+<style>
+    .error-page-400 {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 4rem 2rem;
+        background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+    }
+
+    [data-theme="dark"] .error-page-400 {
+        background: linear-gradient(135deg, #1a1a2e 0%, #2d1f3d 100%);
+    }
+
+    .error-page-400 .error-container { max-width: 600px; }
+
+    .error-page-400 .error-gif {
+        width: 100%;
+        max-width: 350px;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .error-page-400 .error-code {
+        font-size: 8rem;
+        font-weight: 800;
+        margin: 0;
+        background: linear-gradient(135deg, #fc8181 0%, #f56565 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .error-page-400 .error-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        color: var(--color-darkgrey);
+    }
+
+    .error-page-400 .error-description {
+        font-size: 1.2rem;
+        color: var(--color-midgrey);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+
+    .error-page-400 .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .error-page-400 .error-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.75rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .error-page-400 .error-btn-primary {
+        background: linear-gradient(135deg, #fc8181 0%, #f56565 100%);
+        color: white;
+    }
+
+    .error-page-400 .error-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(245, 101, 101, 0.4);
+        color: white;
+    }
+
+    .error-page-400 .error-btn-secondary {
+        background: white;
+        color: var(--color-darkgrey);
+        border: 2px solid #e2e8f0;
+    }
+
+    .error-page-400 .error-quote {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background: rgba(255,255,255,0.5);
+        border-radius: 12px;
+        font-style: italic;
+        color: var(--color-midgrey);
+    }
+
+    [data-theme="dark"] .error-page-400 .error-quote {
+        background: rgba(0,0,0,0.2);
+    }
+</style>
+
+<section class="error-page-400 outer">
+    <div class="error-container inner">
+        <img
+            src="https://media.giphy.com/media/WRQBXSCnEFJIuxktnw/giphy.gif"
+            alt="Confused math lady"
+            class="error-gif"
+            loading="lazy"
+        />
+
+        <h1 class="error-code">400</h1>
+        <h2 class="error-title">Bad Request</h2>
+        <p class="error-description">
+            I literally have no idea what you just asked me. 🤷‍♀️<br>
+            It's like you're speaking in riddles wrapped in mysteries.
+        </p>
+
+        <div class="error-actions">
+            <a href="/" class="error-btn error-btn-primary">
+                🏠 Start Over
+            </a>
+            <a href="javascript:history.back()" class="error-btn error-btn-secondary">
+                ← Go Back
+            </a>
+        </div>
+
+        <div class="error-quote">
+            "What you've just said is one of the most insanely idiotic things I have ever heard." - Billy Madison's Principal
+        </div>
+    </div>
+</section>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

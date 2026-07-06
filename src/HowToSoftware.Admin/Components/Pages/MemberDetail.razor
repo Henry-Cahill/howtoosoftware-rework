@@ -1,0 +1,847 @@
+@page "/members/{MemberId}"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IMemberRepository MemberRepository
+@inject ILabelRepository LabelRepository
+@inject IMemberActivityService MemberActivityService
+@inject IMemberNoteRepository MemberNotes
+@inject IWebhookDispatchService WebhookDispatch
+@inject IMemberImpersonationService Impersonation
+@inject IAdminAuditService AdminAudit
+@inject ISettingsService Settings
+@inject IImageStorageService ImageStorage
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(member?.Name ?? member?.Email ?? "Member") — HowToSoftware Admin</PageTitle>
+
+@if (member is null)
+{
+    @if (notFound)
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-person-x display-4 d-block mb-3 text-muted"></i>
+            <h3>Member not found</h3>
+            <a href="members" class="btn btn-outline-secondary mt-2">
+                <i class="bi bi-arrow-left me-1"></i>Back to members
+            </a>
+        </div>
+    }
+    else
+    {
+        <p class="text-muted">Loading…</p>
+    }
+    return;
+}
+
+<!-- Header -->
+<div class="d-flex align-items-center gap-3 mb-4">
+    <a href="members" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <div class="member-avatar-lg rounded-circle d-flex align-items-center justify-content-center overflow-hidden"
+         style="width:56px;height:56px;background:#6c757d;color:#fff;font-size:1.4rem;font-weight:600;flex-shrink:0">
+        @if (!string.IsNullOrEmpty(member.AvatarImage))
+        {
+            <img src="@member.AvatarImage" alt="@(member.Name ?? member.Email)"
+                 style="width:100%;height:100%;object-fit:cover" />
+        }
+        else
+        {
+            @(member.Name?.Length > 0 ? char.ToUpper(member.Name[0]) : '?')
+        }
+    </div>
+    <div>
+        <h2 class="mb-0">@(member.Name ?? "Unknown")</h2>
+        <span class="text-muted">@member.Email</span>
+    </div>
+    <div class="ms-auto">
+        <span class="badge @GetStatusBadge(member.Status) fs-6">@member.Status</span>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+        <i class="bi @(isError ? "bi-exclamation-circle" : "bi-check-circle") me-1"></i>@statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+
+<div class="row g-4">
+    <!-- Left column: Details -->
+    <div class="col-lg-8">
+        <!-- Member Info Card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Name</label>
+                        <div class="fw-medium">@(member.Name ?? "—")</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Email</label>
+                        <div class="fw-medium">
+                            @member.Email
+                            @if (member.EmailDisabled)
+                            {
+                                <span class="badge bg-warning text-dark ms-1">Disabled</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Status</label>
+                        <div><span class="badge @GetStatusBadge(member.Status)">@member.Status</span></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Expertise</label>
+                        <div class="fw-medium">@(member.Expertise ?? "—")</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Member since</label>
+                        <div class="fw-medium">@member.CreatedAt.ToString("MMMM d, yyyy")</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted">Last seen</label>
+                        <div class="fw-medium">@(member.LastSeenAt?.ToString("MMMM d, yyyy") ?? "Never")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Email Activity Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Email activity</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 text-center">
+                    <div class="col-4">
+                        <div class="text-muted small">Emails sent</div>
+                        <div class="fs-4 fw-bold">@member.EmailCount</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">Emails opened</div>
+                        <div class="fs-4 fw-bold">@member.EmailOpenedCount</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">Open rate</div>
+                        <div class="fs-4 fw-bold">@(member.EmailOpenRate.HasValue ? $"{member.EmailOpenRate}%" : "—")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Newsletter Subscriptions Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Newsletter subscriptions</h5>
+            </div>
+            @if (member.MembersNewsletters.Count == 0)
+            {
+                <div class="card-body text-muted">Not subscribed to any newsletters.</div>
+            }
+            else
+            {
+                <ul class="list-group list-group-flush">
+                    @foreach (var mn in member.MembersNewsletters)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="bi bi-envelope me-2 text-muted"></i>
+                                <span class="fw-medium">@mn.Newsletter.Name</span>
+                            </div>
+                            <span class="badge @(mn.Newsletter.Status == "active" ? "bg-success" : "bg-secondary")">
+                                @mn.Newsletter.Status
+                            </span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <!-- Activity Timeline Card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">Activity</h5>
+                @if (activity is not null && activity.Count > 0)
+                {
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Activity filter">
+                        @foreach (var f in activityFilters)
+                        {
+                            <button type="button"
+                                    class="btn @(activityFilter == f.Key ? "btn-primary" : "btn-outline-secondary")"
+                                    @onclick="() => SetActivityFilter(f.Key)">
+                                @f.Label
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="card-body p-0">
+                @if (activity is null)
+                {
+                    <div class="p-3 text-muted small">Loading activity…</div>
+                }
+                else if (activity.Count == 0)
+                {
+                    <div class="p-3 text-muted">No recorded activity yet.</div>
+                }
+                else
+                {
+                    var filtered = FilteredActivity();
+                    if (filtered.Count == 0)
+                    {
+                        <div class="p-3 text-muted small">No events match this filter.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush activity-timeline">
+                            @foreach (var item in filtered)
+                            {
+                                <li class="list-group-item d-flex gap-3 align-items-start">
+                                    <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle @ActivityIconBg(item.Type)"
+                                         style="width:34px;height:34px;">
+                                        <i class="bi @ActivityIcon(item.Type) text-white"></i>
+                                    </div>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="d-flex justify-content-between align-items-baseline gap-2">
+                                            <span class="fw-medium">@item.Title</span>
+                                            <span class="text-muted small text-nowrap" title="@item.Timestamp.ToString("u")">
+                                                @FormatRelative(item.Timestamp)
+                                            </span>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(item.LinkText) && !string.IsNullOrEmpty(item.LinkUrl))
+                                        {
+                                            <div class="text-muted small text-truncate">
+                                                <a href="@item.LinkUrl"
+                                                   target="@(item.LinkUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "_blank" : null)"
+                                                   rel="@(item.LinkUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "noopener" : null)">@item.LinkText</a>
+                                            </div>
+                                        }
+                                        else if (!string.IsNullOrEmpty(item.Description))
+                                        {
+                                            <div class="text-muted small">@item.Description</div>
+                                        }
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Right column: Labels & Note -->
+    <div class="col-lg-4">
+        <!-- Avatar Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Avatar</h5>
+            </div>
+            <div class="card-body d-flex flex-column align-items-center gap-3">
+                @if (!string.IsNullOrEmpty(member.AvatarImage))
+                {
+                    <img src="@member.AvatarImage" alt="@(member.Name ?? member.Email)"
+                         class="rounded-circle"
+                         style="width:120px;height:120px;object-fit:cover;border:1px solid #dee2e6" />
+                }
+                else
+                {
+                    <div class="rounded-circle d-flex align-items-center justify-content-center"
+                         style="width:120px;height:120px;background:#6c757d;color:#fff;font-size:3rem;font-weight:600">
+                        @(member.Name?.Length > 0 ? char.ToUpper(member.Name[0]) : '?')
+                    </div>
+                }
+                <div class="d-flex gap-2">
+                    <label class="btn btn-sm btn-outline-primary mb-0 @(uploadingAvatar ? "disabled" : "")">
+                        <InputFile OnChange="UploadAvatarAsync" accept="image/*" class="d-none"
+                                   disabled="@uploadingAvatar" />
+                        @if (uploadingAvatar)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Uploading…</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-upload me-1"></i>
+                            <span>@(string.IsNullOrEmpty(member.AvatarImage) ? "Upload" : "Replace")</span>
+                        }
+                    </label>
+                    @if (!string.IsNullOrEmpty(member.AvatarImage))
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="RemoveAvatarAsync"
+                                disabled="@uploadingAvatar">
+                            <i class="bi bi-x-lg me-1"></i>Remove
+                        </button>
+                    }
+                </div>
+                <div class="small text-muted text-center">
+                    PNG, JPG, GIF, or WebP. Max 10 MB. Converted to WebP automatically.
+                </div>
+            </div>
+        </div>
+
+        <!-- View as member -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Impersonate</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">
+                    Open the public site in a new tab as this member to see exactly what they see
+                    (gated posts, portal state, etc.). The session lasts 30 minutes and the action is logged.
+                </p>
+                <button class="btn btn-sm btn-outline-warning" @onclick="ViewAsMemberAsync" disabled="@impersonating">
+                    @if (impersonating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        <span>Opening…</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-eye me-1"></i>
+                        <span>View site as this member</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <!-- Labels Card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Labels</h5>
+                <button class="btn btn-sm btn-outline-primary" @onclick="() => showLabelModal = true">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                @if (member.MembersLabels.Count == 0)
+                {
+                    <p class="text-muted mb-0">No labels assigned.</p>
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var ml in member.MembersLabels)
+                        {
+                            <span class="badge bg-light text-dark border d-flex align-items-center gap-1 px-2 py-1">
+                                @ml.Label.Name
+                                <button class="btn btn-sm p-0 border-0 text-muted label-remove-btn"
+                                        @onclick="() => RemoveLabelAsync(ml.LabelId)" @onclick:stopPropagation
+                                        title="Remove label">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Notes Card (append-only thread, MEM.7) -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Notes</h5>
+                <span class="badge bg-light text-dark border">@(notes?.Count ?? 0)</span>
+            </div>
+            <div class="card-body">
+                @if (notes is null)
+                {
+                    <p class="text-muted small mb-3">Loading notes…</p>
+                }
+                else if (notes.Count == 0)
+                {
+                    <p class="text-muted small mb-3">No notes yet. Add the first one below.</p>
+                }
+                else
+                {
+                    <ul class="list-unstyled member-notes-thread mb-3">
+                        @foreach (var n in notes)
+                        {
+                            <li class="d-flex gap-2 mb-3">
+                                <div class="flex-shrink-0 rounded-circle d-flex align-items-center justify-content-center"
+                                     style="width:32px;height:32px;background:#6c757d;color:#fff;font-weight:600;font-size:0.85rem;">
+                                    @(string.IsNullOrEmpty(n.AuthorName) ? '?' : char.ToUpper(n.AuthorName[0]))
+                                </div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="bg-light border rounded p-2">
+                                        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+                                            <span class="fw-medium small">@(string.IsNullOrEmpty(n.AuthorName) ? "Unknown" : n.AuthorName)</span>
+                                            <span class="text-muted small text-nowrap" title="@n.CreatedAt.ToString("u")">
+                                                @FormatRelative(n.CreatedAt)
+                                            </span>
+                                        </div>
+                                        <div class="small" style="white-space:pre-wrap;word-break:break-word;">@n.Body</div>
+                                    </div>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <textarea class="form-control mb-2" rows="3" @bind="newNoteText"
+                          placeholder="Add a note about this member…" disabled="@addingNote"></textarea>
+                <div class="d-flex gap-2 align-items-center">
+                    <button class="btn btn-sm btn-primary"
+                            @onclick="AddNoteAsync"
+                            disabled="@(addingNote || string.IsNullOrWhiteSpace(newNoteText))">
+                        @if (addingNote)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Posting…</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-plus-lg me-1"></i>
+                            <span>Add note</span>
+                        }
+                    </button>
+                    <span class="text-muted small">Notes are append-only and timestamped.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Label Modal -->
+@if (showLabelModal)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add label</h5>
+                    <button type="button" class="btn-close" @onclick="() => showLabelModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    @if (availableLabels.Count == 0 && string.IsNullOrEmpty(newLabelName))
+                    {
+                        <p class="text-muted">All labels are already assigned.</p>
+                    }
+                    else
+                    {
+                        @if (availableLabels.Count > 0)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label small text-muted">Existing labels</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var label in availableLabels)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddExistingLabelAsync(label.Id)">
+                                            <i class="bi bi-plus me-1"></i>@label.Name
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        <hr />
+                        <div>
+                            <label class="form-label small text-muted">Create new label</label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" @bind="newLabelName" placeholder="Label name…" />
+                                <button class="btn btn-primary" @onclick="CreateAndAddLabelAsync"
+                                        disabled="@string.IsNullOrWhiteSpace(newLabelName)">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" @onclick="() => showLabelModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string MemberId { get; set; } = null!;
+
+    private Member? member;
+    private bool notFound;
+    private List<Label> allLabels = [];
+
+    // Notes thread (append-only)
+    private List<MemberNote>? notes;
+    private string newNoteText = "";
+    private bool addingNote;
+
+    // Label modal
+    private bool showLabelModal;
+    private string newLabelName = "";
+    private List<Label> availableLabels = [];
+
+    // Status
+    private string? statusMessage;
+    private bool isError;
+
+    // View-as-member impersonation
+    private bool impersonating;
+
+    // Avatar upload
+    private bool uploadingAvatar;
+
+    // Activity timeline
+    private IReadOnlyList<MemberActivityItem>? activity;
+    private string activityFilter = "all";
+    private readonly (string Key, string Label)[] activityFilters =
+    [
+        ("all", "All"),
+        ("email", "Email"),
+        ("subscription", "Subscription"),
+        ("engagement", "Engagement"),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMemberAsync();
+        allLabels = await LabelRepository.GetAllAsync();
+        RefreshAvailableLabels();
+        if (member is not null)
+        {
+            activity = await MemberActivityService.GetForMemberAsync(member.Id, top: 200);
+            notes = await MemberNotes.GetByMemberAsync(member.Id);
+        }
+    }
+
+    private async Task LoadMemberAsync()
+    {
+        member = await MemberRepository.GetByIdAsync(MemberId);
+        if (member is null)
+            notFound = true;
+    }
+
+    private void RefreshAvailableLabels()
+    {
+        if (member is null) return;
+        var assignedIds = member.MembersLabels.Select(ml => ml.LabelId).ToHashSet();
+        availableLabels = allLabels.Where(l => !assignedIds.Contains(l.Id)).ToList();
+    }
+
+    // --- Avatar ---
+
+    private async Task UploadAvatarAsync(InputFileChangeEventArgs e)
+    {
+        if (member is null) return;
+        var file = e.File;
+        if (file is null) return;
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            statusMessage = "Image must be under 10 MB.";
+            isError = true;
+            return;
+        }
+        uploadingAvatar = true;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            var result = await ImageStorage.UploadAsync(stream, file.Name, file.ContentType);
+            member.AvatarImage = result.Url;
+            member.UpdatedAt = DateTime.UtcNow;
+            await MemberRepository.UpdateAsync(member);
+            WebhookDispatch.Enqueue("member.edited", new { id = member.Id, email = member.Email, name = member.Name });
+            statusMessage = "Avatar updated.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to upload avatar: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            uploadingAvatar = false;
+        }
+    }
+
+    private async Task RemoveAvatarAsync()
+    {
+        if (member is null || string.IsNullOrEmpty(member.AvatarImage)) return;
+        uploadingAvatar = true;
+        try
+        {
+            member.AvatarImage = null;
+            member.UpdatedAt = DateTime.UtcNow;
+            await MemberRepository.UpdateAsync(member);
+            WebhookDispatch.Enqueue("member.edited", new { id = member.Id, email = member.Email, name = member.Name });
+            statusMessage = "Avatar removed.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to remove avatar: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            uploadingAvatar = false;
+        }
+    }
+
+    // --- Labels ---
+
+    private async Task AddExistingLabelAsync(string labelId)
+    {
+        if (member is null) return;
+        await MemberRepository.AddLabelToMemberAsync(member.Id, labelId);
+        WebhookDispatch.Enqueue("member.edited", new { id = member.Id, email = member.Email, name = member.Name });
+        await LoadMemberAsync();
+        RefreshAvailableLabels();
+        statusMessage = "Label added.";
+        isError = false;
+    }
+
+    private async Task CreateAndAddLabelAsync()
+    {
+        if (member is null || string.IsNullOrWhiteSpace(newLabelName)) return;
+
+        var slug = GenerateSlug(newLabelName.Trim());
+        var existing = await LabelRepository.GetBySlugAsync(slug);
+        if (existing is not null)
+        {
+            // Label already exists, just assign it
+            await MemberRepository.AddLabelToMemberAsync(member.Id, existing.Id);
+        }
+        else
+        {
+            var label = new Label
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                Name = newLabelName.Trim(),
+                Slug = slug,
+                CreatedAt = DateTime.UtcNow,
+            };
+            await LabelRepository.AddAsync(label);
+            await MemberRepository.AddLabelToMemberAsync(member.Id, label.Id);
+        }
+
+        newLabelName = "";
+        allLabels = await LabelRepository.GetAllAsync();
+        await LoadMemberAsync();
+        RefreshAvailableLabels();
+        statusMessage = "Label added.";
+        isError = false;
+    }
+
+    private async Task RemoveLabelAsync(string labelId)
+    {
+        if (member is null) return;
+        await MemberRepository.RemoveLabelFromMemberAsync(member.Id, labelId);
+        WebhookDispatch.Enqueue("member.edited", new { id = member.Id, email = member.Email, name = member.Name });
+        await LoadMemberAsync();
+        RefreshAvailableLabels();
+        statusMessage = "Label removed.";
+        isError = false;
+    }
+
+    // --- Notes (append-only thread, MEM.7) ---
+
+    private async Task AddNoteAsync()
+    {
+        if (member is null || addingNote) return;
+        var body = (newNoteText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(body)) return;
+
+        addingNote = true;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+            var authorId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var authorName = user.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+                ?? user.Identity?.Name
+                ?? user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                ?? "Admin";
+
+            var note = new MemberNote
+            {
+                Id = HowToSoftware.Core.Utilities.ObjectIdGenerator.New(),
+                MemberId = member.Id,
+                AuthorId = string.IsNullOrEmpty(authorId) ? null : authorId,
+                AuthorName = authorName,
+                Body = body,
+                CreatedAt = DateTime.UtcNow,
+            };
+            await MemberNotes.AddAsync(note);
+
+            notes = await MemberNotes.GetByMemberAsync(member.Id);
+            newNoteText = "";
+            statusMessage = "Note added.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Could not add note: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            addingNote = false;
+        }
+    }
+
+    // --- Helpers ---
+
+    private static string GetStatusBadge(string status) => status switch
+    {
+        "free" => "bg-secondary",
+        "paid" => "bg-success",
+        "comped" => "bg-info",
+        _ => "bg-secondary",
+    };
+
+    private static string GenerateSlug(string name)
+    {
+        var slug = name.ToLowerInvariant()
+            .Replace(' ', '-')
+            .Replace("'", "")
+            .Replace("\"", "");
+
+        // Remove non-alphanumeric (except hyphens)
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in slug)
+        {
+            if (char.IsLetterOrDigit(c) || c == '-')
+                sb.Append(c);
+        }
+        return sb.ToString().Trim('-');
+    }
+
+    // --- Activity timeline helpers ---
+
+    private void SetActivityFilter(string key) => activityFilter = key;
+
+    private IReadOnlyList<MemberActivityItem> FilteredActivity()
+    {
+        if (activity is null || activity.Count == 0) return Array.Empty<MemberActivityItem>();
+        return activityFilter switch
+        {
+            "email" => activity.Where(a => a.Type is "email_sent" or "email_opened" or "email_clicked").ToList(),
+            "subscription" => activity.Where(a => a.Type is "subscribed" or "unsubscribed"
+                                                       or "subscription_created" or "subscription_changed"
+                                                       or "subscription_cancelled" or "payment" or "status_change").ToList(),
+            "engagement" => activity.Where(a => a.Type is "login" or "comment" or "feedback").ToList(),
+            _ => activity,
+        };
+    }
+
+    private static string ActivityIcon(string type) => type switch
+    {
+        "signup" => "bi-person-plus",
+        "login" => "bi-box-arrow-in-right",
+        "status_change" => "bi-arrow-left-right",
+        "subscribed" => "bi-envelope-check",
+        "unsubscribed" => "bi-envelope-x",
+        "email_sent" => "bi-envelope",
+        "email_opened" => "bi-envelope-open",
+        "email_clicked" => "bi-link-45deg",
+        "subscription_created" => "bi-stars",
+        "subscription_changed" => "bi-arrow-repeat",
+        "subscription_cancelled" => "bi-x-circle",
+        "payment" => "bi-credit-card",
+        "comment" => "bi-chat-left-text",
+        "feedback" => "bi-hand-thumbs-up",
+        _ => "bi-circle",
+    };
+
+    private static string ActivityIconBg(string type) => type switch
+    {
+        "signup" => "bg-primary",
+        "login" => "bg-secondary",
+        "status_change" => "bg-info",
+        "subscribed" => "bg-success",
+        "unsubscribed" => "bg-secondary",
+        "email_sent" => "bg-secondary",
+        "email_opened" => "bg-info",
+        "email_clicked" => "bg-info",
+        "subscription_created" => "bg-success",
+        "subscription_changed" => "bg-info",
+        "subscription_cancelled" => "bg-warning",
+        "payment" => "bg-success",
+        "comment" => "bg-primary",
+        "feedback" => "bg-primary",
+        _ => "bg-secondary",
+    };
+
+    private static string FormatRelative(DateTime utc)
+    {
+        var delta = DateTime.UtcNow - utc;
+        if (delta.TotalSeconds < 0) return utc.ToLocalTime().ToString("MMM d, yyyy");
+        if (delta.TotalMinutes < 1) return "just now";
+        if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta.TotalHours < 24) return $"{(int)delta.TotalHours}h ago";
+        if (delta.TotalDays < 7) return $"{(int)delta.TotalDays}d ago";
+        if (delta.TotalDays < 30) return $"{(int)(delta.TotalDays / 7)}w ago";
+        return utc.ToLocalTime().ToString("MMM d, yyyy");
+    }
+
+    private async Task ViewAsMemberAsync()
+    {
+        if (member is null || impersonating) return;
+        impersonating = true;
+        statusMessage = null;
+        isError = false;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+            var adminUserId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var adminUserEmail = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(adminUserId))
+            {
+                statusMessage = "Could not determine the signed-in admin user.";
+                isError = true;
+                return;
+            }
+
+            var rawToken = await Impersonation.CreateTokenAsync(member.Id, adminUserId, adminUserEmail);
+
+            await AdminAudit.LogAsync(new AdminAuditEntry
+            {
+                AdminUserId = adminUserId,
+                AdminUserEmail = adminUserEmail,
+                Action = "member.impersonate.token_issued",
+                TargetType = "member",
+                TargetId = member.Id,
+                Metadata = $"{{\"memberEmail\":\"{member.Email}\"}}",
+            });
+
+            var siteUrl = (await Settings.GetStringAsync("url") ?? "").TrimEnd('/');
+            if (string.IsNullOrEmpty(siteUrl))
+            {
+                // Fall back to the admin's own origin (strip the /ghost path base).
+                var baseUri = new Uri(Navigation.BaseUri);
+                siteUrl = $"{baseUri.Scheme}://{baseUri.Authority}";
+            }
+
+            var verifyUrl = $"{siteUrl}/api/member/impersonate/verify?token={Uri.EscapeDataString(rawToken)}";
+            await JS.InvokeVoidAsync("open", verifyUrl, "_blank", "noopener");
+
+            statusMessage = "Opened impersonation session in a new tab. The session expires in 30 minutes.";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Could not start impersonation: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            impersonating = false;
+        }
+    }
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,2286 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/main/schema/compose-spec.json
+name: hts
+# HowToSoftware Complete Stack - Local Tinybird Edition
+#
+# ===========================================
+# SERVICE ACCESS URLS
+# ===========================================
+#
+# INFRASTRUCTURE OVERVIEW:
+#   Website Server (<npm-server-ip>):  Nginx Proxy Manager + Portainer
+#   HowTooSoftware Server (<ghost-server-ip>): This stack (Ghost, Tinybird, etc.)
+#
+# PUBLIC (via Nginx Proxy Manager on <npm-server-ip>):
+#   Ghost Blog:           https://howtoosoftware.com       -> <ghost-server-ip>:80 (Caddy)
+#   Ghost Admin:          https://howtoosoftware.com/ghost -> <ghost-server-ip>:80 (Caddy)
+#   ActivityPub:          https://howtoosoftware.com/ghost/activitypub (federated)
+#
+# INTERNAL ONLY (no external port forwarding - Docker network only):
+#   Ghost (direct):       http://hts-ghost:2368           (container network)
+#   Tinybird Local API:   http://hts-tinybird-local:7181  (container network)
+#   MySQL Database:       hts-db:3306                     (container network)
+#   Mailserver SMTP:      hts-mailserver:587              (container network)
+#   Mailserver IMAP:      hts-mailserver:993              (container network)
+#
+# SECURITY NOTES:
+#   - Only ports 80/443 should be forwarded on router (to <npm-server-ip> NPM)
+#   - All admin panels (Portainer, NPM admin) behind NPM with access lists
+#   - Database ports (3306, 7181) NOT exposed to host - internal only
+#   - Use NPM's Access Lists feature to restrict admin panel access by IP
+#
+# TINYBIRD PORT MAPPING:
+#   Port 7181 - Nginx proxy (health checks, web UI)
+#   Port 8001 - Tinybird API backend (analytics queries, events)
+#   Example: http://localhost:7181/v0/health (from host)
+#   Example: http://hts-tinybird-local:7181/v0/health (from another container)
+#   Example: http://hts-tinybird-local:8001/v0/events (for analytics from containers)
+#
+# TINYBIRD API ENDPOINTS (require token, use port 7181 from host):
+#   Health:               http://localhost:7181/v0/health
+#   KPIs:                 http://localhost:7181/v0/pipes/api_kpis.json?token=TOKEN&site_uuid=UUID
+#   Top Pages:            http://localhost:7181/v0/pipes/api_top_pages.json?token=TOKEN&site_uuid=UUID
+#   Trend:                http://localhost:7181/v0/pipes/api_trend.json?token=TOKEN&site_uuid=UUID
+#   Top Sources:          http://localhost:7181/v0/pipes/api_top_sources.json?token=TOKEN&site_uuid=UUID
+#   Top Devices:          http://localhost:7181/v0/pipes/api_top_devices.json?token=TOKEN&site_uuid=UUID
+#   Top Locations:        http://localhost:7181/v0/pipes/api_top_locations.json?token=TOKEN&site_uuid=UUID
+#   Active Visitors:      http://localhost:7181/v0/pipes/api_active_visitors.json?token=TOKEN&site_uuid=UUID
+#   Post Visitor Counts:  http://localhost:7181/v0/pipes/api_post_visitor_counts.json?token=TOKEN&site_uuid=UUID&post_uuids=["uuid1","uuid2"]
+#
+# GET TINYBIRD TOKEN:
+#   docker exec hts-tinybird-local cat /app/.tinyb | grep token
+#
+# ===========================================
+# STARTUP ORDER (orchestrated):
+#   1. tinybird-project-init (creates datasource/pipe files - fast)
+#   2. db, tinybird-local, mailserver (parallel - tinybird starts early!)
+#   3. tinybird-health-monitor (logs tinybird startup progress to console)
+#   4. tinybird-token-extractor (waits for tinybird-local healthy)
+#   5. tinybird-deploy (auto-deploys pipes), theme-version-bumper (bumps version for cache bust)
+#   6. theme-installer (copies theme - waits for version-bumper)
+#   7. theme-builder (builds theme assets with npm - waits for theme-installer)
+#   8. tinybird-data-restore (restores analytics from MySQL backup)
+#   9. ghost, traffic-analytics (waits for db + token-extractor + theme-builder)
+#   10. caddy, activitypub (waits for ghost)
+#   11. ghost-analytics-fixer (waits for ghost healthy)
+#   12. tinybird-data-backup (continuous - backs up to MySQL every 5 min)
+#
+# USAGE:
+#   Start all:            docker compose -f hts_compose_local.yml up -d
+#   Stop all:             docker compose -f hts_compose_local.yml down
+#   View ALL logs:        docker compose -f hts_compose_local.yml logs -f
+#   Restart Ghost:        docker restart hts-ghost
+#
+# WATCH STARTUP PROGRESS (run these in separate terminals):
+#   Watch Tinybird:       docker logs -f hts-tinybird-health-monitor
+#   Watch Token Extract:  docker logs -f hts-tinybird-token-extractor
+#   Watch Ghost:          docker logs -f hts-ghost
+#   Watch All Services:   docker compose -f hts_compose_local.yml logs -f --tail=50
+#
+# MANUAL COMMANDS:
+#   Deploy pipes:         docker compose -f hts_compose_local.yml run --rm tinybird-deploy
+#   Build theme:          docker compose -f hts_compose_local.yml run --rm theme-builder
+
+services:
+  # ===========================================
+  # LAYER 1: FOUNDATION (no dependencies)
+  # ===========================================
+
+  db:
+    container_name: hts-db
+    image: mysql:8.0.44@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
+    restart: always
+    # SECURITY: No host port binding - only accessible via Docker network
+    # ports:
+    #   - "3306:3306"  # REMOVED - use hts-db:3306 from containers
+    expose:
+      - "3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+      MYSQL_USER: ${DATABASE_USER:-ghost}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME}
+      MYSQL_DATABASE: ghost
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: mysqladmin ping -p$$MYSQL_ROOT_PASSWORD -h 127.0.0.1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - default
+
+  tinybird-project-init:
+    container_name: hts-tinybird-project-init
+    image: alpine:latest
+    volumes:
+      - tinybird_project:/app
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '=== Creating Tinybird Project Files ===';
+        mkdir -p /app/datasources /app/pipes;
+        
+        echo 'Creating analytics_events datasource...';
+        cat > /app/datasources/analytics_events.datasource << 'DSEOF'
+        SCHEMA >
+            timestamp DateTime `json:$.timestamp`,
+            session_id String `json:$.session_id`,
+            action String `json:$.action`,
+            version String `json:$.version`,
+            payload String `json:$.payload`,
+            site_uuid String `json:$.site_uuid`,
+            page_url Nullable(String) `json:$.page_url`,
+            page_urlpath Nullable(String) `json:$.page_urlpath`,
+            referrer Nullable(String) `json:$.referrer`,
+            device Nullable(String) `json:$.device`,
+            browser Nullable(String) `json:$.browser`,
+            os Nullable(String) `json:$.os`,
+            country Nullable(String) `json:$.country`,
+            member_uuid Nullable(String) `json:$.member_uuid`,
+            member_status Nullable(String) `json:$.member_status`,
+            post_uuid Nullable(String) `json:$.post_uuid`
+
+        ENGINE "MergeTree"
+        ENGINE_SORTING_KEY "site_uuid, timestamp"
+
+        FORWARD_QUERY >
+          SELECT timestamp, session_id, action, version, payload, site_uuid, CAST(page_url, 'Nullable(String)') AS page_url, CAST(page_urlpath, 'Nullable(String)') AS page_urlpath, CAST(referrer, 'Nullable(String)') AS referrer, CAST(device, 'Nullable(String)') AS device, CAST(browser, 'Nullable(String)') AS browser, CAST(os, 'Nullable(String)') AS os, CAST(country, 'Nullable(String)') AS country, CAST(member_uuid, 'Nullable(String)') AS member_uuid, CAST(member_status, 'Nullable(String)') AS member_status, CAST(post_uuid, 'Nullable(String)') AS post_uuid
+        DSEOF
+
+        echo 'Creating api_top_pages pipe...';
+        cat > /app/pipes/api_top_pages.pipe << 'PEOF'
+        NODE api_top_pages_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'pathname') as pathname, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit'
+            GROUP BY pathname ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_post_visitor_counts pipe...';
+        cat > /app/pipes/api_post_visitor_counts.pipe << 'PEOF'
+        NODE api_post_visitor_counts_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'post_uuid') as post_uuid,
+                count() as pageviews,
+                uniq(session_id) as visits
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, description="Site UUID") }}
+                AND JSONExtractString(payload, 'post_uuid') IN {{ Array(post_uuids, 'String', description="List of post UUIDs") }}
+            GROUP BY post_uuid
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_kpis pipe...';
+        cat > /app/pipes/api_kpis.pipe << 'PEOF'
+        NODE timeseries
+        SQL >
+            %
+            WITH
+                toDate({{ String(date_from, '2025-01-01', required=False) }}) AS start_date,
+                toDate({{ String(date_to, '2025-12-31', required=False) }}) AS end_date
+            SELECT arrayJoin(arrayMap(x -> toDate(x), range(toUInt32(start_date), toUInt32(end_date) + 1, 1))) AS date
+
+        NODE raw_data
+        SQL >
+            %
+            SELECT
+                toDate(timestamp) AS date,
+                session_id,
+                JSONExtractString(payload, 'member_uuid') AS member_uuid
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                AND timestamp >= toDateTime({{ String(date_from, '2025-01-01', required=False) }})
+                AND timestamp < toDateTime({{ String(date_to, '2025-12-31', required=False) }}) + INTERVAL 1 DAY
+
+        NODE aggregated
+        SQL >
+            SELECT
+                date,
+                uniq(session_id) AS visits,
+                count() AS pageviews,
+                uniqIf(member_uuid, member_uuid != 'undefined' AND member_uuid != '') AS members
+            FROM raw_data
+            GROUP BY date
+
+        NODE api_kpis_endpoint
+        SQL >
+            SELECT
+                t.date AS date,
+                coalesce(a.visits, 0) AS visits,
+                coalesce(a.pageviews, 0) AS pageviews,
+                0 AS bounce_rate,
+                0 AS avg_session_sec
+            FROM timeseries t
+            LEFT JOIN aggregated a ON t.date = a.date
+            ORDER BY t.date ASC
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_trend pipe...';
+        cat > /app/pipes/api_trend.pipe << 'PEOF'
+        NODE timeseries
+        SQL >
+            %
+            WITH
+                toDate({{ String(date_from, '2025-01-01', required=False) }}) AS start_date,
+                toDate({{ String(date_to, '2025-12-31', required=False) }}) AS end_date
+            SELECT arrayJoin(arrayMap(x -> toDate(x), range(toUInt32(start_date), toUInt32(end_date) + 1, 1))) AS date
+
+        NODE raw_data
+        SQL >
+            %
+            SELECT toDate(timestamp) AS date, session_id
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                AND timestamp >= toDateTime({{ String(date_from, '2025-01-01', required=False) }})
+                AND timestamp < toDateTime({{ String(date_to, '2025-12-31', required=False) }}) + INTERVAL 1 DAY
+
+        NODE aggregated
+        SQL >
+            SELECT date, uniq(session_id) AS visits, count() AS pageviews
+            FROM raw_data
+            GROUP BY date
+
+        NODE api_trend_endpoint
+        SQL >
+            SELECT
+                t.date AS date,
+                coalesce(a.visits, 0) AS visits,
+                coalesce(a.pageviews, 0) AS pageviews
+            FROM timeseries t
+            LEFT JOIN aggregated a ON t.date = a.date
+            ORDER BY t.date ASC
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_sources pipe (Ghost 5.x compatible)...';
+        cat > /app/pipes/api_sources.pipe << 'PEOF'
+        NODE api_sources_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(JSONExtractRaw(payload, 'parsedReferrer'), 'source') as source,
+                uniq(session_id) as visits,
+                count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY source
+            ORDER BY visits DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_sources pipe (legacy)...';
+        cat > /app/pipes/api_top_sources.pipe << 'PEOF'
+        NODE api_top_sources_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(JSONExtractRaw(payload, 'parsedReferrer'), 'source') as source, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit'
+            GROUP BY source ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_devices pipe...';
+        cat > /app/pipes/api_top_devices.pipe << 'PEOF'
+        NODE api_top_devices_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'device') as device, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit'
+            GROUP BY device ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_browsers pipe...';
+        cat > /app/pipes/api_top_browsers.pipe << 'PEOF'
+        NODE api_top_browsers_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'browser') as browser,
+                uniq(session_id) as visits,
+                count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY browser
+            ORDER BY visits DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_operating_systems pipe...';
+        cat > /app/pipes/api_top_operating_systems.pipe << 'PEOF'
+        NODE api_top_operating_systems_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'os') as os,
+                uniq(session_id) as visits,
+                count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY os
+            ORDER BY visits DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_locations pipe...';
+        cat > /app/pipes/api_top_locations.pipe << 'PEOF'
+        NODE api_top_locations_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'location') as location, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit'
+            GROUP BY location ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_locations pipe (with date filtering)...';
+        cat > /app/pipes/api_locations.pipe << 'PEOF'
+        NODE api_locations_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'location') as location,
+                uniq(session_id) as visits,
+                count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY location
+            ORDER BY visits DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_active_visitors pipe...';
+        cat > /app/pipes/api_active_visitors.pipe << 'PEOF'
+        NODE api_active_visitors_endpoint
+        SQL >
+            %
+            SELECT uniq(session_id) as active_visitors
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit'
+            AND timestamp >= now() - INTERVAL 5 MINUTE
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_utm_sources pipe...';
+        cat > /app/pipes/api_top_utm_sources.pipe << 'PEOF'
+        NODE api_top_utm_sources_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'utm_source') as utm_source, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit' AND utm_source != ''
+            GROUP BY utm_source ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_utm_mediums pipe...';
+        cat > /app/pipes/api_top_utm_mediums.pipe << 'PEOF'
+        NODE api_top_utm_mediums_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'utm_medium') as utm_medium, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit' AND utm_medium != ''
+            GROUP BY utm_medium ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_utm_campaigns pipe...';
+        cat > /app/pipes/api_top_utm_campaigns.pipe << 'PEOF'
+        NODE api_top_utm_campaigns_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'utm_campaign') as utm_campaign, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit' AND utm_campaign != ''
+            GROUP BY utm_campaign ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_utm_contents pipe...';
+        cat > /app/pipes/api_top_utm_contents.pipe << 'PEOF'
+        NODE api_top_utm_contents_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'utm_content') as utm_content, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit' AND utm_content != ''
+            GROUP BY utm_content ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_top_utm_terms pipe...';
+        cat > /app/pipes/api_top_utm_terms.pipe << 'PEOF'
+        NODE api_top_utm_terms_endpoint
+        SQL >
+            %
+            SELECT JSONExtractString(payload, 'utm_term') as utm_term, uniq(session_id) as visits, count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }} AND action = 'page_hit' AND utm_term != ''
+            GROUP BY utm_term ORDER BY visits DESC LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_member_activity pipe...';
+        cat > /app/pipes/api_member_activity.pipe << 'PEOF'
+        NODE api_member_activity_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'member_uuid') as member_uuid,
+                JSONExtractString(payload, 'member_status') as member_status,
+                uniq(session_id) as sessions,
+                count() as pageviews,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                AND JSONExtractString(payload, 'member_uuid') != 'undefined'
+                AND JSONExtractString(payload, 'member_uuid') != ''
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY member_uuid, member_status
+            ORDER BY pageviews DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_post_engagement pipe...';
+        cat > /app/pipes/api_post_engagement.pipe << 'PEOF'
+        NODE api_post_engagement_endpoint
+        SQL >
+            %
+            SELECT
+                JSONExtractString(payload, 'post_uuid') as post_uuid,
+                JSONExtractString(payload, 'post_type') as post_type,
+                JSONExtractString(payload, 'pathname') as pathname,
+                uniq(session_id) as unique_visitors,
+                count() as pageviews,
+                min(timestamp) as first_visit,
+                max(timestamp) as last_visit
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                AND JSONExtractString(payload, 'post_uuid') != 'undefined'
+                AND JSONExtractString(payload, 'post_uuid') != ''
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY post_uuid, post_type, pathname
+            ORDER BY pageviews DESC
+            LIMIT {{ Int32(limit, 50) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_hourly_traffic pipe...';
+        cat > /app/pipes/api_hourly_traffic.pipe << 'PEOF'
+        NODE api_hourly_traffic_endpoint
+        SQL >
+            %
+            SELECT
+                toHour(timestamp) as hour,
+                uniq(session_id) as visits,
+                count() as pageviews
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            GROUP BY hour
+            ORDER BY hour ASC
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_raw_events pipe (debug)...';
+        cat > /app/pipes/api_raw_events.pipe << 'PEOF'
+        NODE api_raw_events_endpoint
+        SQL >
+            %
+            SELECT
+                timestamp,
+                session_id,
+                action,
+                JSONExtractString(payload, 'pathname') as pathname,
+                JSONExtractString(payload, 'device') as device,
+                JSONExtractString(payload, 'browser') as browser,
+                JSONExtractString(payload, 'os') as os,
+                JSONExtractString(payload, 'location') as location,
+                JSONExtractString(payload, 'member_uuid') as member_uuid,
+                JSONExtractString(payload, 'post_uuid') as post_uuid,
+                JSONExtractString(JSONExtractRaw(payload, 'parsedReferrer'), 'source') as referrer_source,
+                JSONExtractString(payload, 'utm_source') as utm_source
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                {% if defined(date_from) %}
+                AND timestamp >= toDateTime({{ String(date_from) }})
+                {% end %}
+                {% if defined(date_to) %}
+                AND timestamp < toDateTime({{ String(date_to) }}) + INTERVAL 1 DAY
+                {% end %}
+            ORDER BY timestamp DESC
+            LIMIT {{ Int32(limit, 100) }}
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Creating api_realtime_dashboard pipe...';
+        cat > /app/pipes/api_realtime_dashboard.pipe << 'PEOF'
+        NODE api_realtime_dashboard_endpoint
+        SQL >
+            %
+            SELECT
+                uniq(session_id) as active_visitors_5min,
+                uniqIf(session_id, timestamp >= now() - INTERVAL 15 MINUTE) as active_visitors_15min,
+                uniqIf(session_id, timestamp >= now() - INTERVAL 1 HOUR) as active_visitors_1hour,
+                countIf(timestamp >= now() - INTERVAL 5 MINUTE) as pageviews_5min,
+                countIf(timestamp >= now() - INTERVAL 15 MINUTE) as pageviews_15min,
+                countIf(timestamp >= now() - INTERVAL 1 HOUR) as pageviews_1hour,
+                arrayElement(groupArray(JSONExtractString(payload, 'pathname')), 1) as last_page
+            FROM analytics_events
+            WHERE site_uuid = {{ String(site_uuid, required=True) }}
+                AND action = 'page_hit'
+                AND timestamp >= now() - INTERVAL 5 MINUTE
+
+        TYPE endpoint
+        PEOF
+
+        echo 'Project files created:';
+        ls -la /app/datasources/ /app/pipes/;
+        echo '=== Project Init Complete ===';
+    networks:
+      - default
+    restart: "no"
+
+  tinybird-local:
+    container_name: hts-tinybird-local
+    image: tinybirdco/tinybird-local:latest
+    restart: unless-stopped
+    # SECURITY: No host port binding - only accessible via Docker network
+    # ports:
+    #   - "7181:7181"   # REMOVED - use hts-tinybird-local:7181 from containers
+    #   - "8001:8001"   # REMOVED - use hts-tinybird-local:8001 from containers  
+    #   - "8123:8123"   # REMOVED - use hts-tinybird-local:8123 from containers
+    expose:
+      - "7181"
+      - "8001"
+      - "8123"
+    environment:
+      TINYBIRD_HOST: http://localhost:7181
+      TB_HOST: http://localhost:7181
+      # Enable more verbose logging
+      LOG_LEVEL: info
+    volumes:
+      - tinybird_data:/data
+      - tinybird_project:/app
+    # Resource limits to prevent memory issues causing hangs
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    healthcheck:
+      # Check ClickHouse is ready (port 8123) - Tinybird API takes much longer
+      # The actual Tinybird API (7181/8001) can take 5+ minutes to initialize
+      # ClickHouse being ready is sufficient for dependent services
+      test: ["CMD-SHELL", "curl -sf http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      tinybird-project-init:
+        condition: service_completed_successfully
+    networks:
+      default:
+        aliases:
+          - tinybird.local
+    # Logging configuration for better visibility
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Stop grace period - give time for clean shutdown
+    stop_grace_period: 30s
+
+  # Tinybird Health Monitor - logs startup progress to console
+  # Run with: docker compose up -d && docker logs -f hts-tinybird-health-monitor
+  tinybird-health-monitor:
+    container_name: hts-tinybird-health-monitor
+    image: alpine:latest
+    # Use tty for better output formatting
+    tty: true
+    stdin_open: true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl > /dev/null 2>&1;
+        
+        echo "";
+        echo "================================================================";
+        echo "  🔍 TINYBIRD HEALTH MONITOR";
+        echo "  Started: $$(date '+%Y-%m-%d %H:%M:%S')";
+        echo "================================================================";
+        echo "";
+        
+        START_TIME=$$(date +%s);
+        ATTEMPT=0;
+        MAX_ATTEMPTS=120;
+        LAST_STATUS="unknown";
+        
+        echo "[MONITOR] Checking Tinybird at http://tinybird.local:7181";
+        echo "";
+        
+        while [ $$ATTEMPT -lt $$MAX_ATTEMPTS ]; do
+          ATTEMPT=$$((ATTEMPT + 1));
+          ELAPSED=$$((($$(date +%s) - START_TIME)));
+          
+          # Check health endpoint with verbose output
+          HTTP_CODE=$$(curl -s -o /tmp/response.txt -w "%{http_code}" http://tinybird.local:7181/v0/health 2>/dev/null || echo "000");
+          RESPONSE=$$(cat /tmp/response.txt 2>/dev/null || echo "");
+          
+          # Determine current status
+          if [ "$$HTTP_CODE" = "200" ] && echo "$$RESPONSE" | grep -q '"status": "ok"'; then
+            CURRENT_STATUS="healthy";
+          elif [ "$$HTTP_CODE" = "000" ]; then
+            CURRENT_STATUS="connecting";
+          else
+            CURRENT_STATUS="starting (HTTP $$HTTP_CODE)";
+          fi
+          
+          # Log status changes
+          if [ "$$CURRENT_STATUS" != "$$LAST_STATUS" ]; then
+            echo "[$$ELAPSED s] Status changed: $$LAST_STATUS -> $$CURRENT_STATUS";
+            LAST_STATUS="$$CURRENT_STATUS";
+          fi
+          
+          # Check if healthy
+          if [ "$$CURRENT_STATUS" = "healthy" ]; then
+            echo "";
+            echo "================================================================";
+            echo "  ✅ TINYBIRD IS HEALTHY!";
+            echo "  Time to healthy: $${ELAPSED} seconds";
+            echo "================================================================";
+            echo "";
+            
+            # Verify API is fully functional
+            echo "[VERIFY] Testing API endpoints...";
+            
+            # Test pipes endpoint
+            PIPES_CODE=$$(curl -s -o /dev/null -w "%{http_code}" "http://tinybird.local:7181/v0/pipes" 2>/dev/null);
+            if [ "$$PIPES_CODE" = "200" ]; then
+              echo "[VERIFY] ✓ /v0/pipes endpoint OK";
+            else
+              echo "[VERIFY] ⚠ /v0/pipes returned HTTP $$PIPES_CODE";
+            fi
+            
+            # Test datasources endpoint
+            DS_CODE=$$(curl -s -o /dev/null -w "%{http_code}" "http://tinybird.local:7181/v0/datasources" 2>/dev/null);
+            if [ "$$DS_CODE" = "200" ]; then
+              echo "[VERIFY] ✓ /v0/datasources endpoint OK";
+            else
+              echo "[VERIFY] ⚠ /v0/datasources returned HTTP $$DS_CODE";
+            fi
+            
+            echo "";
+            echo "[READY] Tinybird is ready for connections:";
+            echo "        • Internal: http://tinybird.local:7181";
+            echo "        • External: http://localhost:7181";
+            echo "        • ClickHouse: http://localhost:8123";
+            echo "";
+            echo "[MONITOR] Exiting successfully.";
+            exit 0;
+          fi
+          
+          # Progress indicator every 5 attempts (25 seconds)
+          if [ $$((ATTEMPT % 5)) -eq 0 ]; then
+            echo "[$$ELAPSED s] Waiting... (attempt $$ATTEMPT/$$MAX_ATTEMPTS) - Status: $$CURRENT_STATUS";
+          fi
+          
+          sleep 5;
+        done
+        
+        echo "";
+        echo "================================================================";
+        echo "  ❌ TINYBIRD FAILED TO BECOME HEALTHY";
+        echo "  Timeout after $$MAX_ATTEMPTS attempts";
+        echo "================================================================";
+        echo "";
+        echo "[ERROR] Check Tinybird logs with:";
+        echo "        docker logs hts-tinybird-local";
+        echo "";
+        exit 1;
+    depends_on:
+      tinybird-local:
+        condition: service_started
+    networks:
+      - default
+    restart: "no"
+
+  mailserver:
+    container_name: hts-mailserver
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    hostname: mail
+    domainname: howtoosoftware.com
+    restart: always
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+    environment:
+      OVERRIDE_HOSTNAME: mail.howtoosoftware.com
+      POSTMASTER_ADDRESS: postmaster@howtoosoftware.com
+      # Disable services not needed for relay-only mode
+      ENABLE_IMAP: 0
+      ENABLE_POP3: 0
+      ENABLE_CLAMAV: 0
+      ENABLE_SPAMASSASSIN: 0
+      ENABLE_FAIL2BAN: 0
+      ENABLE_POSTGREY: 0
+      ENABLE_MANAGESIEVE: 0
+      ENABLE_QUOTAS: 0
+      ENABLE_UPDATE_CHECK: 0
+      # Core settings
+      ONE_DIR: 1
+      SSL_TYPE: ""
+      PERMIT_DOCKER: network
+      LOG_LEVEL: info
+      # SMTP relay only mode (no local accounts needed)
+      SMTP_ONLY: 1
+      # =====================================================
+      # MAILGUN RELAY CREDENTIALS - UPDATE THESE VALUES
+      # Get from: https://app.mailgun.com/app/sending/domains
+      # =====================================================
+      DEFAULT_RELAY_HOST: "[smtp.mailgun.org]:587"
+      RELAY_HOST: smtp.mailgun.org
+      RELAY_PORT: 587
+      RELAY_USER: ${MAILGUN_SMTP_USER:-postmaster@mg.howtoosoftware.com}
+      RELAY_PASSWORD: ${MAILGUN_SMTP_PASSWORD}
+    volumes:
+      - mailserver_data:/var/mail
+      - mailserver_state:/var/mail-state
+      - mailserver_logs:/var/log/mail
+      - mailserver_config:/tmp/docker-mailserver
+      - /etc/localtime:/etc/localtime:ro
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD-SHELL", "ss -ltn | grep -q :25"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - default
+
+  # ===========================================
+  # LAYER 2: TOKEN EXTRACTION (needs tinybird healthy)
+  # ===========================================
+
+  tinybird-token-extractor:
+    container_name: hts-tinybird-token-extractor
+    image: docker:cli
+    tty: true
+    stdin_open: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - tinybird_token:/token_output
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "";
+        echo "================================================================";
+        echo "  🔑 TINYBIRD TOKEN EXTRACTOR";
+        echo "  Started: $$(date '+%Y-%m-%d %H:%M:%S')";
+        echo "================================================================";
+        echo "";
+        
+        # Check if there's an existing token
+        OLD_TOKEN="";
+        if [ -f /token_output/token ]; then
+          OLD_TOKEN=$$(cat /token_output/token);
+          echo "[TOKEN] Existing token found: $${OLD_TOKEN:0:40}...";
+        else
+          echo "[TOKEN] No existing token found";
+        fi
+        
+        # STEP 1: Wait for Tinybird API to be healthy (not just ClickHouse)
+        # First wait for ClickHouse, then wait for Tinybird API
+        echo "";
+        echo "[STEP 1a] Waiting for ClickHouse to be ready...";
+        i=0;
+        while [ $$i -lt 30 ]; do
+          PING=$$(docker exec hts-tinybird-local curl -sf http://localhost:8123/ping 2>/dev/null);
+          if [ "$$PING" = "Ok." ]; then
+            echo "[STEP 1a] ✓ ClickHouse is ready";
+            break;
+          fi
+          i=$$((i + 1));
+          sleep 2;
+        done
+        
+        echo "";
+        echo "[STEP 1b] Waiting for Tinybird API (this can take 3-5 minutes)...";
+        i=0;
+        RESTARTED=0;
+        while [ $$i -lt 180 ]; do
+          HEALTH=$$(docker exec hts-tinybird-local curl -sf http://localhost:7181/v0/health 2>/dev/null);
+          if echo "$$HEALTH" | grep -q 'ok'; then
+            echo "[STEP 1b] ✓ Tinybird API is healthy";
+            break;
+          fi
+          
+          # After 3 minutes, try restarting the tinybird process once
+          if [ $$i -eq 36 ] && [ $$RESTARTED -eq 0 ]; then
+            echo "[STEP 1b] API not responding after 3 minutes - restarting tinybird process...";
+            docker exec hts-tinybird-local supervisorctl restart tinybird 2>/dev/null || true;
+            RESTARTED=1;
+            echo "[STEP 1b] Tinybird process restarted, continuing to wait...";
+          fi
+          
+          i=$$((i + 1));
+          if [ $$((i % 12)) -eq 0 ]; then
+            echo "[STEP 1b] Waiting... attempt $$i/180 ($$((i * 5))s elapsed)";
+          fi
+          sleep 5;
+        done
+        
+        if [ $$i -ge 180 ]; then
+          echo "[STEP 1b] ✗ ERROR: Tinybird API did not become healthy after 15 minutes";
+          exit 1;
+        fi
+        
+        # STEP 2: Wait additional time for setup process to stabilize
+        # (The setup process can crash and regenerate tokens)
+        echo "";
+        echo "[STEP 2] Waiting 15s for setup process to stabilize...";
+        sleep 15;
+        
+        # STEP 3: Read the token
+        echo "";
+        echo "[STEP 3] Reading token from .tinyb file...";
+        TINYB_JSON=$$(docker exec hts-tinybird-local cat /app/.tinyb 2>/dev/null);
+        
+        if [ -z "$$TINYB_JSON" ]; then
+          echo "[STEP 3] ✗ ERROR: Could not read .tinyb file";
+          exit 1;
+        fi
+        
+        TOKEN=$$(echo "$$TINYB_JSON" | grep -o '"token": "[^"]*"' | head -1 | cut -d'"' -f4);
+        WORKSPACE_ID=$$(echo "$$TINYB_JSON" | grep -o '"id": "[^"]*"' | head -1 | cut -d'"' -f4);
+        
+        if [ -z "$$TOKEN" ]; then
+          echo "[STEP 3] ✗ ERROR: Could not extract token from .tinyb";
+          exit 1;
+        fi
+        
+        echo "[STEP 3] Token read: $${TOKEN:0:40}...";
+        
+        # STEP 4: Verify token works with API
+        echo "";
+        echo "[STEP 4] Verifying token works with Tinybird API...";
+        VERIFY=$$(docker exec hts-tinybird-local curl -sf "http://localhost:7181/v0/pipes?token=$$TOKEN" 2>/dev/null);
+        if echo "$$VERIFY" | grep -q 'pipes'; then
+          echo "[STEP 4] ✓ Token verified - API responds correctly";
+        else
+          echo '  ⚠ WARNING: Token verification returned unexpected response';
+          echo "  Response: $${VERIFY:0:100}";
+        fi
+        
+        # STEP 5: Stability check - wait and re-read to detect token regeneration
+        echo '';
+        echo '→ Step 5: Stability check - waiting 10s and re-reading token...';
+        sleep 10;
+        
+        TINYB_JSON2=$$(docker exec hts-tinybird-local cat /app/.tinyb 2>/dev/null);
+        TOKEN2=$$(echo "$$TINYB_JSON2" | grep -o '"token": "[^"]*"' | head -1 | cut -d'"' -f4);
+        
+        if [ "$$TOKEN" != "$$TOKEN2" ]; then
+          echo '  ⚠ TOKEN CHANGED during stability check!';
+          echo "  Old: $${TOKEN:0:40}...";
+          echo "  New: $${TOKEN2:0:40}...";
+          TOKEN="$$TOKEN2";
+          echo '  Using new token instead';
+          
+          # Re-verify the new token
+          VERIFY2=$$(docker exec hts-tinybird-local curl -sf "http://localhost:7181/v0/pipes?token=$$TOKEN" 2>/dev/null);
+          if echo "$$VERIFY2" | grep -q 'pipes'; then
+            echo '  ✓ New token verified';
+          else
+            echo '  ✗ ERROR: New token failed verification';
+            exit 1;
+          fi
+        else
+          echo '  ✓ Token stable - no regeneration detected';
+        fi
+        
+        # STEP 6: Save token
+        echo '';
+        echo '→ Step 6: Saving token...';
+        echo "  Final Token: $${TOKEN:0:40}...";
+        echo "  Workspace ID: $$WORKSPACE_ID";
+        
+        if [ "$$OLD_TOKEN" = "$$TOKEN" ]; then
+          echo '  ✓ Token unchanged from previous run';
+        else
+          if [ -n "$$OLD_TOKEN" ]; then
+            echo '  ⚠ TOKEN CHANGED from previous run! Updating...';
+          fi
+          echo "$$TOKEN" > /token_output/token;
+          echo "$$WORKSPACE_ID" > /token_output/workspace_id;
+          echo "$$(date '+%Y-%m-%d %H:%M:%S')" > /token_output/last_updated;
+          chmod 644 /token_output/token /token_output/workspace_id /token_output/last_updated;
+          echo '  ✓ Token files written to /token_output/';
+        fi
+        
+        echo '';
+        echo '════════════════════════════════════════════════════════════════';
+        echo '  ✓ Token extraction complete (stability verified)!';
+        echo '════════════════════════════════════════════════════════════════';
+    depends_on:
+      tinybird-local:
+        condition: service_healthy
+    networks:
+      - default
+    restart: "no"
+
+  # ===========================================
+  # LAYER 3: INITIALIZATION (init/deploy profiles)
+  # ===========================================
+
+  tinybird-deploy:
+    container_name: hts-tinybird-deploy
+    image: docker:cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '=== Ghost Tinybird Pipe Deployer ===';
+        
+        echo 'Waiting for Tinybird API to be fully ready (checking /v0/health endpoint)...';
+        i=0;
+        while [ $$i -lt 120 ]; do
+          RESPONSE=$$(docker exec hts-tinybird-local curl -sf http://localhost:7181/v0/health 2>/dev/null);
+          if echo "$$RESPONSE" | grep -q 'ok'; then
+            echo "Tinybird API health check passed!";
+            break;
+          fi
+          i=$$((i + 1));
+          echo "Waiting for Tinybird backend... ($$i/120)";
+          sleep 5;
+        done
+        
+        if [ $$i -ge 120 ]; then
+          echo "WARNING: Tinybird API did not become ready in 10 minutes";
+          exit 1;
+        fi
+        
+        echo 'Verifying project files exist...';
+        docker exec hts-tinybird-local ls -la /app/datasources/ /app/pipes/;
+        
+        echo 'Deploying to Tinybird (with retries)...';
+        DEPLOYED=0;
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          echo "Deploy attempt $$attempt/10...";
+          if docker exec -w /app hts-tinybird-local tb deploy --wait --auto 2>&1; then
+            DEPLOYED=1;
+            echo "Deploy succeeded on attempt $$attempt!";
+            break;
+          fi
+          echo "Attempt $$attempt failed, waiting 30 seconds...";
+          sleep 30;
+        done
+        
+        if [ $$DEPLOYED -eq 0 ]; then
+          echo "ERROR: tb deploy failed after 10 attempts";
+          echo "Checking tinybird-local logs for errors:";
+          docker logs hts-tinybird-local 2>&1 | tail -30;
+        fi
+        
+        echo '=== Verifying Pipes ===';
+        docker exec hts-tinybird-local tb pipe ls 2>&1;
+        echo '';
+        docker exec hts-tinybird-local tb datasource ls 2>&1;
+        echo '';
+        
+        echo '=== Restarting Ghost to reconnect to Tinybird ===';
+        docker restart hts-ghost;
+        echo 'Ghost restarted!';
+        
+        echo '=== Pipe Deployment Complete! ===';
+    depends_on:
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+      tinybird-local:
+        condition: service_healthy
+    networks:
+      - default
+    restart: "no"
+
+  # Tinybird Data Restore - Restores analytics data from MySQL after Tinybird starts
+  tinybird-data-restore:
+    container_name: hts-tinybird-data-restore
+    image: mysql:8.0.44@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
+    environment:
+      MYSQL_PWD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+    volumes:
+      - tinybird_token:/tinybird:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo '════════════════════════════════════════════════════════════════';
+        echo '  Tinybird Data Restore Service';
+        echo '════════════════════════════════════════════════════════════════';
+        echo "  Time: $$(date '+%Y-%m-%d %H:%M:%S')";
+        echo '';
+        
+        # Wait for a VALID token (not just any token file)
+        # This handles the case where old/stale tokens exist in the volume
+        echo '→ Waiting for valid Tinybird token...';
+        MAX_ATTEMPTS=60;
+        ATTEMPT=0;
+        TOKEN="";
+        
+        while [ $$ATTEMPT -lt $$MAX_ATTEMPTS ]; do
+          ATTEMPT=$$((ATTEMPT + 1));
+          
+          # Check if token file exists
+          if [ ! -f /tinybird/token ]; then
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token file not found, waiting...";
+            sleep 5;
+            continue;
+          fi
+          
+          # Read the token
+          TOKEN=$$(cat /tinybird/token);
+          if [ -z "$$TOKEN" ]; then
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token file empty, waiting...";
+            sleep 5;
+            continue;
+          fi
+          
+          # Validate token with Tinybird API
+          VALIDATE_RESPONSE=$$(curl -sf "http://hts-tinybird-local:7181/v0/pipes?token=$$TOKEN" 2>/dev/null);
+          if echo "$$VALIDATE_RESPONSE" | grep -q 'pipes'; then
+            echo "  ✓ Token validated on attempt $$ATTEMPT: $${TOKEN:0:40}...";
+            break;
+          else
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token invalid (API returned error), waiting...";
+            sleep 5;
+          fi
+        done
+        
+        if [ $$ATTEMPT -ge $$MAX_ATTEMPTS ]; then
+          echo '  ✗ ERROR: Could not get valid token after 5 minutes';
+          echo '  The token-extractor may not have run yet.';
+          exit 1;
+        fi
+        
+        # Check if backup table exists
+        echo '';
+        echo '→ Checking for backup data in MySQL...';
+        
+        TABLE_EXISTS=$$(mysql -h hts-db -u root -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'ghost' AND table_name = 'tinybird_analytics_backup';" 2>/dev/null || echo "0");
+        
+        if [ "$$TABLE_EXISTS" != "1" ]; then
+          echo '  ⚠ No backup table found - this is normal for first run';
+          echo '  Creating backup table for future use...';
+          
+          mysql -h hts-db -u root ghost -e "
+            CREATE TABLE IF NOT EXISTS tinybird_analytics_backup (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              timestamp DATETIME NOT NULL,
+              session_id VARCHAR(255),
+              action VARCHAR(100),
+              version VARCHAR(50),
+              payload MEDIUMTEXT,
+              site_uuid VARCHAR(36),
+              page_url TEXT,
+              page_urlpath TEXT,
+              referrer TEXT,
+              device VARCHAR(100),
+              browser VARCHAR(100),
+              os VARCHAR(100),
+              country VARCHAR(10),
+              member_uuid VARCHAR(36),
+              member_status VARCHAR(50),
+              post_uuid VARCHAR(36),
+              backed_up_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              INDEX idx_timestamp (timestamp),
+              INDEX idx_site_uuid (site_uuid),
+              INDEX idx_session (session_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          " 2>/dev/null;
+          
+          echo '  ✓ Backup table created';
+          echo '';
+          echo '════════════════════════════════════════════════════════════════';
+          echo '  ✓ Restore complete (no data to restore)';
+          echo '════════════════════════════════════════════════════════════════';
+          exit 0;
+        fi
+        
+        # Count rows in backup
+        BACKUP_COUNT=$$(mysql -h hts-db -u root ghost -N -e "SELECT COUNT(*) FROM tinybird_analytics_backup;" 2>/dev/null || echo "0");
+        echo "  Found $$BACKUP_COUNT events in MySQL backup";
+        
+        if [ "$$BACKUP_COUNT" -eq 0 ]; then
+          echo '  ⚠ No backup data to restore';
+          echo '';
+          echo '════════════════════════════════════════════════════════════════';
+          echo '  ✓ Restore complete (no data to restore)';
+          echo '════════════════════════════════════════════════════════════════';
+          exit 0;
+        fi
+        
+        # Function to parse count from Tinybird SQL response
+        # Tries multiple parsing methods to handle different response formats
+        parse_tinybird_count() {
+          local RAW="$$1";
+          local COUNT="";
+          
+          # Debug: show raw response (first 200 chars)
+          echo "    [DEBUG] Raw response: $${RAW:0:200}";
+          
+          # Check for error response
+          if echo "$$RAW" | grep -qi 'error\|<!DOCTYPE\|<html'; then
+            echo "    [DEBUG] Detected error/HTML response";
+            echo "0";
+            return;
+          fi
+          
+          # Method 1: Response is just a number (ideal case)
+          COUNT=$$(echo "$$RAW" | tr -d '[:space:]');
+          if [ -n "$$COUNT" ] && [ "$$COUNT" -eq "$$COUNT" ] 2>/dev/null; then
+            echo "    [DEBUG] Method 1 (direct number): $$COUNT";
+            echo "$$COUNT";
+            return;
+          fi
+          
+          # Method 2: Extract first number from response
+          COUNT=$$(echo "$$RAW" | grep -oE '[0-9]+' | head -1);
+          if [ -n "$$COUNT" ]; then
+            echo "    [DEBUG] Method 2 (first number): $$COUNT";
+            echo "$$COUNT";
+            return;
+          fi
+          
+          # Method 3: Strip all non-digits
+          COUNT=$$(echo "$$RAW" | tr -cd '0-9');
+          if [ -n "$$COUNT" ]; then
+            echo "    [DEBUG] Method 3 (digits only): $$COUNT";
+            echo "$$COUNT";
+            return;
+          fi
+          
+          echo "    [DEBUG] All parsing methods failed";
+          echo "0";
+        }
+        
+        # Check current Tinybird count
+        echo '';
+        echo '→ Checking current Tinybird event count...';
+        TINYBIRD_RAW=$$(curl -s "http://hts-tinybird-local:7181/v0/sql?token=$$TOKEN&q=SELECT%20count()%20FROM%20analytics_events" 2>/dev/null);
+        TINYBIRD_COUNT=$$(parse_tinybird_count "$$TINYBIRD_RAW" | tail -1);
+        TINYBIRD_COUNT=$${TINYBIRD_COUNT:-0};
+        echo "  Tinybird currently has $$TINYBIRD_COUNT events";
+        
+        if [ "$$TINYBIRD_COUNT" -ge "$$BACKUP_COUNT" ]; then
+          echo '  ✓ Tinybird already has enough data, skipping restore';
+          echo '';
+          echo '════════════════════════════════════════════════════════════════';
+          echo '  ✓ Restore complete (data already present)';
+          echo '════════════════════════════════════════════════════════════════';
+          exit 0;
+        fi
+        
+        # Restore data from MySQL to Tinybird
+        echo '';
+        echo '→ Restoring data from MySQL to Tinybird...';
+        
+        # Export from MySQL and import to Tinybird in batches
+        BATCH_SIZE=1000;
+        OFFSET=0;
+        RESTORED=0;
+        
+        while true; do
+          # Get batch of rows as NDJSON
+          # Build JSON manually with CONCAT to avoid double-escaping payload
+          # The payload is already a valid JSON string, we need to escape it for embedding
+          BATCH=$$(mysql -h hts-db -u root ghost -N --raw -e "
+            SELECT CONCAT(
+              '{\"timestamp\":\"', DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:%s'), 
+              '\",\"session_id\":\"', REPLACE(IFNULL(session_id, ''), '\"', '\\\\\"'),
+              '\",\"action\":\"', IFNULL(action, ''),
+              '\",\"version\":\"', IFNULL(version, ''),
+              '\",\"payload\":\"', REPLACE(REPLACE(IFNULL(payload, '{}'), '\\\\', '\\\\\\\\'), '\"', '\\\\\"'),
+              '\",\"site_uuid\":\"', IFNULL(site_uuid, ''), '\"}'
+            )
+            FROM tinybird_analytics_backup
+            ORDER BY timestamp
+            LIMIT $$BATCH_SIZE OFFSET $$OFFSET;
+          " 2>/dev/null);
+          
+          if [ -z "$$BATCH" ]; then
+            break;
+          fi
+          
+          # Count lines in batch
+          BATCH_COUNT=$$(echo "$$BATCH" | wc -l);
+          
+          if [ "$$BATCH_COUNT" -eq 0 ]; then
+            break;
+          fi
+          
+          # Send to Tinybird Events API
+          RESPONSE=$$(echo "$$BATCH" | curl -s -X POST "http://hts-tinybird-local:7181/v0/events?name=analytics_events&token=$$TOKEN" \
+            -H "Content-Type: application/x-ndjson" \
+            --data-binary @- 2>/dev/null);
+          
+          if echo "$$RESPONSE" | grep -q "successful_rows"; then
+            RESTORED=$$((RESTORED + BATCH_COUNT));
+            echo "  Restored $$RESTORED / $$BACKUP_COUNT events...";
+          else
+            echo "  ⚠ Batch failed: $$RESPONSE";
+          fi
+          
+          OFFSET=$$((OFFSET + BATCH_SIZE));
+          
+          if [ "$$BATCH_COUNT" -lt "$$BATCH_SIZE" ]; then
+            break;
+          fi
+        done
+        
+        echo '';
+        echo "  ✓ Restored $$RESTORED events to Tinybird";
+        
+        # Verify
+        echo '';
+        echo '→ Verifying restore...';
+        sleep 2;  # Give Tinybird a moment to process
+        FINAL_RAW=$$(curl -s "http://hts-tinybird-local:7181/v0/sql?token=$$TOKEN&q=SELECT%20count()%20FROM%20analytics_events" 2>/dev/null);
+        FINAL_COUNT=$$(parse_tinybird_count "$$FINAL_RAW" | tail -1);
+        FINAL_COUNT=$${FINAL_COUNT:-0};
+        echo "  Tinybird now has $$FINAL_COUNT events";
+        
+        echo '';
+        echo '════════════════════════════════════════════════════════════════';
+        echo "  ✓ Restore complete! $$RESTORED events restored";
+        echo '════════════════════════════════════════════════════════════════';
+    depends_on:
+      db:
+        condition: service_healthy
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+      tinybird-deploy:
+        condition: service_completed_successfully
+    networks:
+      - default
+    restart: "no"
+
+  # Tinybird Data Backup - Runs continuously, backing up new analytics data to MySQL
+  tinybird-data-backup:
+    container_name: hts-tinybird-data-backup
+    image: mysql:8.0.44@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
+    restart: always
+    environment:
+      MYSQL_PWD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+    volumes:
+      - tinybird_token:/tinybird:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo '════════════════════════════════════════════════════════════════';
+        echo '  Tinybird Data Backup Service (Continuous)';
+        echo '════════════════════════════════════════════════════════════════';
+        echo "  Backup interval: 5 minutes";
+        echo '';
+        
+        # Wait for valid token and database
+        echo '→ Waiting for valid token and database...';
+        
+        # Wait for database first
+        while ! mysqladmin ping -h hts-db -u root --silent 2>/dev/null; do sleep 2; done;
+        echo "  ✓ Database ready";
+        
+        # Wait for valid token (with retries)
+        MAX_ATTEMPTS=60;
+        ATTEMPT=0;
+        TOKEN="";
+        
+        while [ $$ATTEMPT -lt $$MAX_ATTEMPTS ]; do
+          ATTEMPT=$$((ATTEMPT + 1));
+          
+          if [ ! -f /tinybird/token ]; then
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token file not found, waiting...";
+            sleep 5;
+            continue;
+          fi
+          
+          TOKEN=$$(cat /tinybird/token);
+          if [ -z "$$TOKEN" ]; then
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token file empty, waiting...";
+            sleep 5;
+            continue;
+          fi
+          
+          VALIDATE_RESPONSE=$$(curl -sf "http://hts-tinybird-local:7181/v0/pipes?token=$$TOKEN" 2>/dev/null);
+          if echo "$$VALIDATE_RESPONSE" | grep -q 'pipes'; then
+            echo "  ✓ Token validated on attempt $$ATTEMPT: $${TOKEN:0:40}...";
+            break;
+          else
+            echo "  Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Token invalid, waiting...";
+            sleep 5;
+          fi
+        done
+        
+        if [ $$ATTEMPT -ge $$MAX_ATTEMPTS ]; then
+          echo '  ✗ ERROR: Could not get valid token after 5 minutes';
+          exit 1;
+        fi
+        
+        # Ensure backup table exists
+        mysql -h hts-db -u root ghost -e "
+          CREATE TABLE IF NOT EXISTS tinybird_analytics_backup (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            timestamp DATETIME NOT NULL,
+            session_id VARCHAR(255),
+            action VARCHAR(100),
+            version VARCHAR(50),
+            payload MEDIUMTEXT,
+            site_uuid VARCHAR(36),
+            page_url TEXT,
+            page_urlpath TEXT,
+            referrer TEXT,
+            device VARCHAR(100),
+            browser VARCHAR(100),
+            os VARCHAR(100),
+            country VARCHAR(10),
+            member_uuid VARCHAR(36),
+            member_status VARCHAR(50),
+            post_uuid VARCHAR(36),
+            backed_up_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_timestamp (timestamp),
+            INDEX idx_site_uuid (site_uuid),
+            INDEX idx_session (session_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        " 2>/dev/null;
+        
+        echo '';
+        echo '→ Starting backup loop...';
+        echo '';
+        
+        backup_data() {
+          # Get last backed up timestamp
+          LAST_BACKUP=$$(mysql -h hts-db -u root ghost -N -e "SELECT COALESCE(MAX(timestamp), '1970-01-01 00:00:00') FROM tinybird_analytics_backup;" 2>/dev/null);
+          
+          # Query new events from Tinybird using POST with Authorization header
+          EVENTS=$$(curl -s "http://hts-tinybird-local:7181/v0/sql" \
+            -H "Authorization: Bearer $$TOKEN" \
+            -d "q=SELECT timestamp, session_id, action, version, payload, site_uuid, page_url, page_urlpath, referrer, device, browser, os, country, member_uuid, member_status, post_uuid FROM analytics_events WHERE timestamp > '$$LAST_BACKUP' ORDER BY timestamp LIMIT 10000" \
+            2>/dev/null);
+          
+          # Check for errors or HTML response (indicates auth failure)
+          if echo "$$EVENTS" | grep -q '"error"\|<html\|<!DOCTYPE'; then
+            echo "  [$$(date '+%H:%M:%S')] Warning: Tinybird API error (possibly stale token)";
+            # Try to refresh token
+            NEW_TOKEN=$$(cat /tinybird/token 2>/dev/null);
+            if [ -n "$$NEW_TOKEN" ] && [ "$$NEW_TOKEN" != "$$TOKEN" ]; then
+              echo "  [$$(date '+%H:%M:%S')] Refreshing token...";
+              TOKEN="$$NEW_TOKEN";
+            fi
+            return 0;
+          fi
+          
+          if [ -z "$$EVENTS" ] || [ "$$EVENTS" = "" ]; then
+            return 0;
+          fi
+          
+          # Count new events (Tinybird SQL returns raw TSV data without header)
+          NEW_COUNT=$$(echo "$$EVENTS" | grep -c .);
+          
+          if [ "$$NEW_COUNT" -le 0 ]; then
+            return 0;
+          fi
+          
+          echo "  [$$(date '+%H:%M:%S')] Found $$NEW_COUNT new events since $$LAST_BACKUP";
+          
+          # Parse TSV and insert into MySQL (no header to skip)
+          echo "$$EVENTS" | while IFS=$$'\t' read -r ts sid act ver pay uuid purl purp ref dev brw os cty muuid mstat puuid; do
+            # Escape single quotes in payload and URLs for MySQL
+            pay_escaped=$$(echo "$$pay" | sed "s/'/''/g");
+            purl_escaped=$$(echo "$$purl" | sed "s/'/''/g");
+            ref_escaped=$$(echo "$$ref" | sed "s/'/''/g");
+            
+            mysql -h hts-db -u root ghost -e "
+              INSERT IGNORE INTO tinybird_analytics_backup 
+              (timestamp, session_id, action, version, payload, site_uuid, page_url, page_urlpath, referrer, device, browser, os, country, member_uuid, member_status, post_uuid)
+              VALUES ('$$ts', '$$sid', '$$act', '$$ver', '$$pay_escaped', '$$uuid', '$$purl_escaped', '$$purp', '$$ref_escaped', '$$dev', '$$brw', '$$os', '$$cty', NULLIF('$$muuid','\\N'), NULLIF('$$mstat','\\N'), NULLIF('$$puuid','\\N'));
+            " 2>/dev/null;
+          done
+          
+          echo "  [$$(date '+%H:%M:%S')] Backed up $$NEW_COUNT events to MySQL";
+          return $$NEW_COUNT;
+        }
+        
+        # Initial backup
+        echo "  [$$(date '+%H:%M:%S')] Running initial backup...";
+        backup_data;
+        
+        MYSQL_COUNT=$$(mysql -h hts-db -u root ghost -N -e "SELECT COUNT(*) FROM tinybird_analytics_backup;" 2>/dev/null || echo "0");
+        echo "  [$$(date '+%H:%M:%S')] MySQL backup now has $$MYSQL_COUNT total events";
+        echo '';
+        
+        # Function to refresh token if needed
+        refresh_token() {
+          NEW_TOKEN=$$(cat /tinybird/token 2>/dev/null);
+          if [ -n "$$NEW_TOKEN" ] && [ "$$NEW_TOKEN" != "$$TOKEN" ]; then
+            echo "  [$$(date '+%H:%M:%S')] Token changed, updating...";
+            TOKEN="$$NEW_TOKEN";
+          fi
+        }
+        
+        # Continuous backup loop with token refresh
+        while true; do
+          sleep 300;  # 5 minutes
+          refresh_token;
+          backup_data;
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+      tinybird-data-restore:
+        condition: service_completed_successfully
+    networks:
+      - default
+
+  # ===========================================
+  # THEME MANAGEMENT SERVICES
+  # ===========================================
+
+  theme-version-bumper:
+    container_name: hts-theme-version-bumper
+    image: alpine:latest
+    # Runs BEFORE theme-installer to bump version for cache busting
+    # Updates package.json version with timestamp to ensure browser cache invalidation
+    # Also ensures author information is set correctly
+    volumes:
+      - theme_source:/theme-source
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '=== Theme Version Bumper ===';
+        echo "Timestamp: $$(date -Iseconds)";
+        
+        PACKAGE_JSON="/theme-source/package.json";
+        
+        if [ ! -f "$$PACKAGE_JSON" ]; then
+          echo "ERROR: package.json not found at $$PACKAGE_JSON";
+          exit 1;
+        fi
+        
+        # Install jq for JSON manipulation
+        apk add --no-cache jq > /dev/null 2>&1;
+        
+        # Get current version
+        CURRENT_VERSION=$$(jq -r '.version' "$$PACKAGE_JSON");
+        echo "Current version: $$CURRENT_VERSION";
+        
+        # Parse version components (major.minor.patch) - strip any existing build metadata
+        BASE_VERSION=$$(echo "$$CURRENT_VERSION" | cut -d+ -f1);
+        MAJOR=$$(echo "$$BASE_VERSION" | cut -d. -f1);
+        MINOR=$$(echo "$$BASE_VERSION" | cut -d. -f2);
+        PATCH=$$(echo "$$BASE_VERSION" | cut -d. -f3);
+        
+        # Generate new version with build timestamp (ensures uniqueness)
+        # Format: MAJOR.MINOR.PATCH+YYYYMMDDHHMMSS
+        BUILD_TS=$$(date -u +%Y%m%d%H%M%S);
+        NEW_VERSION="$${MAJOR}.$${MINOR}.$${PATCH}+$${BUILD_TS}";
+        
+        echo "New version: $$NEW_VERSION";
+        
+        # Update package.json with new version AND ensure author info is correct
+        jq --arg ver "$$NEW_VERSION" \
+           '.version = $$ver | .author = {"name": "Henry Lawrence Cahill", "email": "henry.cahill@howtoosoftware.com", "url": "https://howtoosoftware.com"}' \
+           "$$PACKAGE_JSON" > /tmp/package.json.tmp;
+        mv /tmp/package.json.tmp "$$PACKAGE_JSON";
+        
+        # Verify update
+        UPDATED_VERSION=$$(jq -r '.version' "$$PACKAGE_JSON");
+        AUTHOR_NAME=$$(jq -r '.author.name' "$$PACKAGE_JSON");
+        AUTHOR_EMAIL=$$(jq -r '.author.email' "$$PACKAGE_JSON");
+        echo "Updated package.json version to: $$UPDATED_VERSION";
+        echo "Author: $$AUTHOR_NAME <$$AUTHOR_EMAIL>";
+        
+        # Also create a version file for easy checking
+        echo "$$NEW_VERSION" > /theme-source/.theme-version;
+        echo "Created .theme-version file";
+        
+        echo '=== Version Bump Complete ===';
+    networks:
+      - default
+    restart: "no"
+
+  theme-installer:
+    container_name: hts-theme-installer
+    image: alpine:latest
+    # Runs automatically before Ghost starts to ensure theme is present
+    # Theme source lives in persistent volume hts_theme_source
+    # Installs to Ghost's built-in themes directory where casper/source live
+    volumes:
+      - ghost_content:/ghost-content
+      - theme_source:/theme-source:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '=== Installing HowToSoftware Theme ===';
+        
+        # Install to BOTH locations to ensure Ghost finds it
+        THEME_DIR_VOLUME="/ghost-content/themes/howtoosoftware-custom";
+        
+        if [ ! -d "/theme-source" ] || [ -z "$$(ls -A /theme-source 2>/dev/null)" ]; then
+          echo "ERROR: Theme source volume is empty!";
+          echo "Upload theme files to hts_theme_source volume first.";
+          exit 1;
+        fi
+        
+        echo "Copying theme to volume...";
+        rm -rf "$$THEME_DIR_VOLUME";
+        mkdir -p "$$THEME_DIR_VOLUME";
+        cp -r /theme-source/* "$$THEME_DIR_VOLUME/";
+        
+        echo "Setting permissions...";
+        chown -R 1000:1000 "$$THEME_DIR_VOLUME" 2>/dev/null || true;
+        chmod -R 755 "$$THEME_DIR_VOLUME";
+        
+        echo "Theme installed to $$THEME_DIR_VOLUME";
+        ls -la "$$THEME_DIR_VOLUME";
+        
+        # Show version info
+        if [ -f "$$THEME_DIR_VOLUME/.theme-version" ]; then
+          echo "Theme version: $$(cat $$THEME_DIR_VOLUME/.theme-version)";
+        fi
+        
+        echo '=== Theme Installation Complete ===';
+    depends_on:
+      theme-version-bumper:
+        condition: service_completed_successfully
+    networks:
+      - default
+    restart: "no"
+
+  theme-builder:
+    container_name: hts-theme-builder
+    image: ghost:${GHOST_VERSION:-latest}
+    # Runs after theme-installer to build theme assets with npm
+    # Uses Ghost image which has node/npm available
+    volumes:
+      - ghost_content:/var/lib/ghost/content
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "=== Theme Builder $(date) ===";
+        
+        # Setup persistent npm installation
+        export PATH="/var/lib/ghost/content/.npm-global/bin:/usr/local/bin:$$PATH";
+        export NPM_CONFIG_PREFIX="/var/lib/ghost/content/.npm-global";
+        mkdir -p /var/lib/ghost/content/.npm-global;
+        
+        # Update npm to latest version (persistent in content volume)
+        if [ ! -f /var/lib/ghost/content/.npm-global/bin/npm ]; then
+          echo "Installing npm 11.7.0 to persistent location...";
+          /usr/local/bin/npm install -g npm@11.7.0;
+          echo "npm installed: $$(npm --version)";
+        else
+          echo "Using persistent npm: $$(npm --version)";
+        fi
+        
+        THEME_DIR="/var/lib/ghost/content/themes/howtoosoftware-custom";
+        
+        if [ ! -d "$$THEME_DIR" ]; then
+          echo "ERROR: Theme not found at $$THEME_DIR";
+          exit 1;
+        fi
+        
+        cd "$$THEME_DIR";
+        
+        # Check if gulpfile exists
+        if [ ! -f "gulpfile.js" ]; then
+          echo "WARNING: gulpfile.js not found, skipping build";
+          echo "Theme assets will use pre-built files";
+          exit 0;
+        fi
+        
+        # Build theme assets if node_modules doesn't exist
+        if [ ! -d "node_modules/@tryghost" ]; then
+          echo "Installing theme dependencies...";
+          npm install --include=dev 2>&1;
+          echo "Building theme assets...";
+          npm run build 2>&1;
+          echo "=== Theme Build Complete ===";
+        else
+          echo "Theme dependencies already installed, skipping build";
+        fi
+    depends_on:
+      theme-installer:
+        condition: service_completed_successfully
+    networks:
+      - default
+    restart: "no"
+
+  # ===========================================
+  # LAYER 4: APPLICATION SERVICES
+  # ===========================================
+
+  ghost:
+    container_name: hts-ghost
+    image: ghost:${GHOST_VERSION:-latest}
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "=== Ghost Startup $(date) ===";
+        
+        # Copy theme from volume to Ghost's built-in themes directory
+        THEME_SRC="/var/lib/ghost/content/themes/howtoosoftware-custom";
+        THEME_DST="/var/lib/ghost/current/content/themes/howtoosoftware-custom";
+        if [ -d "$$THEME_SRC" ]; then
+          echo "Copying theme to Ghost's themes directory...";
+          rm -rf "$$THEME_DST";
+          cp -r "$$THEME_SRC" "$$THEME_DST";
+          chown -R node:node "$$THEME_DST";
+          chmod -R 755 "$$THEME_DST";
+          echo "Theme copied to $$THEME_DST";
+          ls -la "$$THEME_DST";
+        else
+          echo "WARNING: Theme not found at $$THEME_SRC";
+        fi
+        
+        # Sync images from persistent volume to Ghost's runtime content directory
+        # Ghost serves images from /var/lib/ghost/current/content/images/ but the
+        # volume is mounted at /var/lib/ghost/content/. Without this sync, uploaded
+        # images (logo, post images, etc.) are lost when the container is recreated.
+        # We replace the runtime images dir with a symlink to the volume so that
+        # new uploads via Ghost Admin are also persisted automatically.
+        IMAGES_SRC="/var/lib/ghost/content/images";
+        IMAGES_DST="/var/lib/ghost/current/content/images";
+        if [ -d "$$IMAGES_DST" ] && [ ! -L "$$IMAGES_DST" ]; then
+          echo "Linking images directory to persistent volume...";
+          rm -rf "$$IMAGES_DST";
+          ln -s "$$IMAGES_SRC" "$$IMAGES_DST";
+          echo "Images symlinked: $$IMAGES_DST -> $$IMAGES_SRC ($$(find $$IMAGES_SRC -type f 2>/dev/null | wc -l) files)";
+        elif [ -L "$$IMAGES_DST" ]; then
+          echo "Images directory already symlinked";
+        else
+          echo "Creating images symlink...";
+          ln -s "$$IMAGES_SRC" "$$IMAGES_DST";
+          echo "Images symlinked: $$IMAGES_DST -> $$IMAGES_SRC";
+        fi
+        
+        # Symlink media and files directories for the same persistence reason
+        for CONTENT_DIR in media files; do
+          DIR_SRC="/var/lib/ghost/content/$$CONTENT_DIR";
+          DIR_DST="/var/lib/ghost/current/content/$$CONTENT_DIR";
+          if [ -d "$$DIR_DST" ] && [ ! -L "$$DIR_DST" ]; then
+            rm -rf "$$DIR_DST";
+            ln -s "$$DIR_SRC" "$$DIR_DST";
+          elif [ ! -e "$$DIR_DST" ]; then
+            ln -s "$$DIR_SRC" "$$DIR_DST";
+          fi
+        done;
+        echo "Media and files directories symlinked to persistent volume";
+        
+        echo "Checking for Tinybird token at /tinybird/token...";
+        ls -la /tinybird/ 2>/dev/null || echo "Warning: /tinybird directory not accessible";
+        
+        TIMEOUT=30;
+        WAITED=0;
+        while [ ! -f /tinybird/token ] && [ $$WAITED -lt $$TIMEOUT ]; do
+          sleep 1;
+          WAITED=$$((WAITED + 1));
+          if [ $$((WAITED % 5)) -eq 0 ]; then
+            echo "Waiting for token... ($$WAITED/$$TIMEOUT seconds)";
+          fi
+        done;
+        
+        if [ -f /tinybird/token ] && [ -r /tinybird/token ]; then
+          TOKEN=$$(cat /tinybird/token 2>/dev/null);
+          if [ -n "$$TOKEN" ]; then
+            echo "Tinybird token loaded successfully (length: $${#TOKEN})";
+            echo "Token suffix: ...$${TOKEN: -20}";
+          else
+            echo "ERROR: Token file exists but is empty!";
+            echo "Exiting to trigger restart...";
+            exit 1;
+          fi
+        else
+          echo "ERROR: Tinybird token not found or not readable after $$TIMEOUT seconds!";
+          echo "Contents of /tinybird:";
+          ls -la /tinybird/ 2>/dev/null || echo "Cannot list directory";
+          echo "Exiting to trigger container restart...";
+          exit 1;
+        fi
+        
+        # Verify token is valid by testing against Tinybird API (using wget since curl is not in Ghost image)
+        echo "Verifying token against Tinybird API...";
+        VERIFY_RESPONSE=$$(wget -qO- "http://hts-tinybird-local:7181/v0/pipes?token=$$TOKEN" 2>&1 || echo "wget_failed");
+        if echo "$$VERIFY_RESPONSE" | grep -q 'pipes'; then
+          echo "✓ Token verified successfully with Tinybird API";
+        elif echo "$$VERIFY_RESPONSE" | grep -q 'wget_failed'; then
+          echo "⚠ Token verification skipped (wget not available) - token will be validated at runtime";
+        else
+          echo "⚠ WARNING: Token verification returned unexpected response";
+          echo "Response: $${VERIFY_RESPONSE:0:200}";
+          echo "This may indicate a stale token - check tinybird-token-extractor";
+          # Don't exit - let Ghost try to start anyway
+        fi
+        
+        echo "Creating Ghost config with Tinybird analytics...";
+        cat > /var/lib/ghost/config.production.json << EOF
+        {
+          "url": "https://$${DOMAIN:-howtoosoftware.com}",
+          "server": {
+            "host": "0.0.0.0",
+            "port": 2368
+          },
+          "database": {
+            "client": "mysql",
+            "connection": {
+              "host": "hts-db",
+              "user": "$${DATABASE_USER:-ghost}",
+              "password": "$${DATABASE_PASSWORD:-CHANGE_ME}",
+              "database": "ghost"
+            }
+          },
+          "mail": {
+            "transport": "SMTP",
+            "options": {
+              "host": "hts-mailserver",
+              "port": 25,
+              "secure": false
+            },
+            "from": "'HowTo Software' <support@howtoosoftware.com>"
+          },
+          "tinybird": {
+            "tracker": {
+              "endpoint": "https://$${DOMAIN:-howtoosoftware.com}/.ghost/analytics/api/v1/page_hit",
+              "datasource": "analytics_events"
+            },
+            "stats": {
+              "endpoint": "https://$${DOMAIN:-howtoosoftware.com}/.ghost/tinybird",
+              "local": {
+                "enabled": true,
+                "endpoint": "https://$${DOMAIN:-howtoosoftware.com}/.ghost/tinybird",
+                "token": "$$TOKEN"
+              }
+            }
+          }
+        }
+        EOF
+        echo "Ghost config created, starting Ghost...";
+        exec env \
+          tinybird__stats__enabled="true" \
+          tinybird__stats__endpoint="https://$${DOMAIN:-howtoosoftware.com}/.ghost/tinybird" \
+          tinybird__stats__id="10353e5c-60a4-4c5e-b118-0b7b370920e0" \
+          tinybird__stats__token="$$TOKEN" \
+          node current/index.js
+    environment:
+      NODE_ENV: production
+      DOMAIN: ${DOMAIN:-howtoosoftware.com}
+      DATABASE_USER: ${DATABASE_USER:-ghost}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME}
+    volumes:
+      - ghost_content:/var/lib/ghost/content
+      - tinybird_token:/tinybird:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:2368/', r => process.exit(r.statusCode >= 200 && r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+      theme-builder:
+        condition: service_completed_successfully
+      ghost-settings-init:
+        condition: service_completed_successfully
+    networks:
+      - default
+
+  # Ghost settings initializer - runs BEFORE Ghost to set theme and other settings
+  ghost-settings-init:
+    container_name: hts-ghost-settings-init
+    image: mysql:8.0.44@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
+    environment:
+      MYSQL_PWD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo '=== Ghost Settings Initializer (Pre-Ghost) ===';
+        echo 'Checking if settings table exists...';
+        
+        # Check if settings table exists (from previous Ghost runs)
+        TABLE_EXISTS=$$(mysql -h hts-db -u root ghost -N -e 'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = "ghost" AND table_name = "settings";' 2>/dev/null);
+        
+        if [ "$$TABLE_EXISTS" != "1" ]; then
+          echo "Settings table does not exist yet (first run). Ghost will create it.";
+          echo "Skipping settings initialization - will be applied on next restart.";
+          exit 0;
+        fi
+        
+        echo 'Settings table found. Applying settings...';
+        
+        # Set active theme to howtoosoftware-custom BEFORE Ghost starts
+        # 0x686f77746f6f736f6674776172652d637573746f6d = "howtoosoftware-custom"
+        # 0x6163746976655f7468656d65 = "active_theme"
+        echo 'Setting active theme to howtoosoftware-custom...';
+        mysql -h hts-db -u root ghost -e 'UPDATE settings SET value = 0x686f77746f6f736f6674776172652d637573746f6d WHERE settings.key = 0x6163746976655f7468656d65;';
+        
+        THEME=$$(mysql -h hts-db -u root ghost -N -e 'SELECT value FROM settings WHERE settings.key = 0x6163746976655f7468656d65;');
+        echo "active_theme is now: $$THEME";
+        
+        # Disable explore_ping_growth (prevents "Failed to fetch member statistics" error when Stripe not configured)
+        # 0x66616c7365 = "false"
+        # 0x6578706c6f72655f70696e675f67726f777468 = "explore_ping_growth"
+        mysql -h hts-db -u root ghost -e 'UPDATE settings SET value = 0x66616c7365 WHERE settings.key = 0x6578706c6f72655f70696e675f67726f777468 AND value != 0x66616c7365;';
+        
+        UPDATED=$$(mysql -h hts-db -u root ghost -N -e 'SELECT value FROM settings WHERE settings.key = 0x6578706c6f72655f70696e675f67726f777468;');
+        echo "explore_ping_growth is now: $$UPDATED";
+        
+        echo '=== Ghost Settings Init Complete ===';
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+    restart: "no"
+
+  # Ghost analytics fixer - runs AFTER Ghost starts to fix Tinybird endpoint
+  # This ensures the public URL is used instead of internal tinybird.local
+  ghost-analytics-fixer:
+    container_name: hts-ghost-analytics-fixer
+    image: mysql:8.0.44@sha256:f37951fc3753a6a22d6c7bf6978c5e5fefcf6f31814d98c582524f98eae52b21
+    environment:
+      MYSQL_PWD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+      DOMAIN: ${DOMAIN:-howtoosoftware.com}
+    volumes:
+      - tinybird_token:/tinybird:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo '════════════════════════════════════════════════════════════════';
+        echo '  Ghost Analytics Fixer - Tinybird Endpoint Automation';
+        echo '════════════════════════════════════════════════════════════════';
+        echo "  Domain: $${DOMAIN}";
+        echo "  Time: $$(date '+%Y-%m-%d %H:%M:%S')";
+        echo '';
+        
+        # Wait for token file
+        echo '→ Waiting for Tinybird token...';
+        while [ ! -f /tinybird/token ]; do sleep 1; done;
+        TOKEN=$$(cat /tinybird/token);
+        echo "  ✓ Token loaded: $${TOKEN:0:40}...";
+        
+        # Define the correct public endpoints
+        PUBLIC_TINYBIRD_ENDPOINT="https://$${DOMAIN}/.ghost/tinybird"
+        PUBLIC_TRACKER_ENDPOINT="https://$${DOMAIN}/.ghost/analytics/api/v1/page_hit"
+        SITE_UUID="10353e5c-60a4-4c5e-b118-0b7b370920e0"
+        
+        echo '';
+        echo '→ Checking current Ghost analytics settings...';
+        
+        # Get current tinybird_stats value
+        CURRENT=$$(mysql -h hts-db -u root ghost -N -e "SELECT value FROM settings WHERE \\\`key\\\` = 'tinybird_stats';" 2>/dev/null || echo "not_found");
+        
+        if [ "$$CURRENT" = "not_found" ] || [ -z "$$CURRENT" ]; then
+          echo '  ⚠ tinybird_stats setting not found. Ghost may not have initialized yet.';
+          echo '  Creating tinybird_stats setting...';
+          
+          # Build the correct JSON config
+          TINYBIRD_CONFIG=$$(cat <<JSONEOF
+        {"enabled":true,"id":"$${SITE_UUID}","endpoint":"$${PUBLIC_TINYBIRD_ENDPOINT}","token":"$${TOKEN}","local":{"enabled":true,"endpoint":"$${PUBLIC_TINYBIRD_ENDPOINT}","token":"$${TOKEN}"}}
+        JSONEOF
+        )
+          
+          mysql -h hts-db -u root ghost -e "INSERT INTO settings (\\\`key\\\`, value, \\\`group\\\`, type, created_at, created_by, updated_at, updated_by) VALUES ('tinybird_stats', '$$TINYBIRD_CONFIG', 'analytics', 'string', NOW(), 1, NOW(), 1) ON DUPLICATE KEY UPDATE value = '$$TINYBIRD_CONFIG', updated_at = NOW();" 2>/dev/null;
+        else
+          echo "  Current value: $${CURRENT:0:80}...";
+          
+          # Check if it contains the wrong internal endpoint
+          if echo "$$CURRENT" | grep -q "tinybird.local"; then
+            echo '  ✗ Found internal tinybird.local endpoint - FIXING...';
+            
+            # Build the correct JSON config
+            TINYBIRD_CONFIG=$$(cat <<JSONEOF
+        {"enabled":true,"id":"$${SITE_UUID}","endpoint":"$${PUBLIC_TINYBIRD_ENDPOINT}","token":"$${TOKEN}","local":{"enabled":true,"endpoint":"$${PUBLIC_TINYBIRD_ENDPOINT}","token":"$${TOKEN}"}}
+        JSONEOF
+        )
+            
+            mysql -h hts-db -u root ghost -e "UPDATE settings SET value = '$$TINYBIRD_CONFIG', updated_at = NOW() WHERE \\\`key\\\` = 'tinybird_stats';" 2>/dev/null;
+            echo '  ✓ Updated tinybird_stats to use public endpoint';
+          else
+            echo '  ✓ Endpoint already correct (no tinybird.local found)';
+          fi
+        fi
+        
+        # Also fix tinybird_tracker if it exists
+        echo '';
+        echo '→ Checking tinybird_tracker setting...';
+        TRACKER_CURRENT=$$(mysql -h hts-db -u root ghost -N -e "SELECT value FROM settings WHERE \\\`key\\\` = 'tinybird_tracker';" 2>/dev/null || echo "");
+        
+        if [ -n "$$TRACKER_CURRENT" ] && echo "$$TRACKER_CURRENT" | grep -q "tinybird.local"; then
+          echo '  ✗ Found internal endpoint in tracker - FIXING...';
+          TRACKER_CONFIG="{\"endpoint\":\"$${PUBLIC_TRACKER_ENDPOINT}\",\"datasource\":\"analytics_events\"}"
+          mysql -h hts-db -u root ghost -e "UPDATE settings SET value = '$$TRACKER_CONFIG', updated_at = NOW() WHERE \\\`key\\\` = 'tinybird_tracker';" 2>/dev/null;
+          echo '  ✓ Updated tinybird_tracker';
+        else
+          echo '  ✓ Tracker setting OK or not present';
+        fi
+        
+        # Verify the fix
+        echo '';
+        echo '→ Verifying settings...';
+        VERIFIED=$$(mysql -h hts-db -u root ghost -N -e "SELECT value FROM settings WHERE \\\`key\\\` = 'tinybird_stats';" 2>/dev/null);
+        echo "  Final tinybird_stats: $${VERIFIED:0:100}...";
+        
+        if echo "$$VERIFIED" | grep -q "$$DOMAIN"; then
+          echo '';
+          echo '════════════════════════════════════════════════════════════════';
+          echo '  ✓ SUCCESS: Analytics endpoint configured for public access';
+          echo "  ✓ Endpoint: $${PUBLIC_TINYBIRD_ENDPOINT}";
+          echo '════════════════════════════════════════════════════════════════';
+        else
+          echo '';
+          echo '════════════════════════════════════════════════════════════════';
+          echo '  ⚠ WARNING: Could not verify endpoint fix';
+          echo '  Ghost may need a restart for changes to take effect';
+          echo '════════════════════════════════════════════════════════════════';
+        fi
+    depends_on:
+      ghost:
+        condition: service_healthy
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+    networks:
+      - default
+    restart: "no"
+
+  activitypub-migrate:
+    container_name: hts-activitypub-migrate
+    image: ghcr.io/tryghost/activitypub-migrations:1.1.0@sha256:b3ab20f55d66eb79090130ff91b57fe93f8a4254b446c2c7fa4507535f503662
+    environment:
+      MYSQL_DB: mysql://${DATABASE_USER:-ghost}:${DATABASE_PASSWORD:-CHANGE_ME}@tcp(hts-db:3306)/activitypub
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+    restart: "no"
+
+  # ===========================================
+  # LAYER 5: FRONTEND / REVERSE PROXY
+  # ===========================================
+
+  caddy:
+    container_name: hts-caddy
+    image: caddy:2.10.2-alpine@sha256:953131cfea8e12bfe1c631a36308e9660e4389f0c3dfb3be957044d3ac92d446
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-howtoosoftware.com}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-admin.howtoosoftware.com}
+      ACTIVITYPUB_TARGET: ${ACTIVITYPUB_TARGET:-https://ap.ghost.org}
+    volumes:
+      - ./caddy:/etc/caddy
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      ghost:
+        condition: service_healthy
+    networks:
+      - default
+
+  activitypub:
+    container_name: hts-activitypub
+    image: ghcr.io/tryghost/activitypub:1.1.0@sha256:39c212fe23603b182d68e67d555c6b9b04b1e57459dfc0bef26d6e4980eb04d1
+    restart: always
+    expose:
+      - "8080"
+    volumes:
+      - ghost_content:/opt/activitypub/content
+    environment:
+      NODE_ENV: production
+      MYSQL_HOST: hts-db
+      MYSQL_USER: ${DATABASE_USER:-ghost}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME}
+      MYSQL_DATABASE: activitypub
+      LOCAL_STORAGE_PATH: /opt/activitypub/content/images/activitypub
+      LOCAL_STORAGE_HOSTING_URL: https://${DOMAIN:-howtoosoftware.com}/content/images/activitypub
+    depends_on:
+      db:
+        condition: service_healthy
+      activitypub-migrate:
+        condition: service_completed_successfully
+    networks:
+      - default
+
+  # ===========================================
+  # BACKGROUND SERVICES
+  # ===========================================
+
+  db-backup:
+    container_name: hts-db-backup
+    image: mysql:latest
+    restart: always
+    volumes:
+      - db_backups:/backups
+      - mailserver_data:/mail-data:ro
+      - mailserver_state:/mail-state:ro
+      - mailserver_config:/mail-config:ro
+    environment:
+      MYSQL_PWD: ${DATABASE_ROOT_PASSWORD:-CHANGE_ME}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '=== Backup Service ===';
+        
+        backup() {
+          TS=$$(date +%Y%m%d_%H%M%S);
+          echo "[$$(date)] Running backup...";
+          
+          mysqldump -h hts-db -u root ghost 2>/dev/null | gzip > /backups/ghost_db_$$TS.sql.gz;
+          tar -czf /backups/mail_backup_$$TS.tar.gz -C / mail-data mail-state mail-config 2>/dev/null;
+          
+          cd /backups;
+          ls -t ghost_db_*.sql.gz 2>/dev/null | tail -n +25 | xargs -r rm -f;
+          ls -t mail_backup_*.tar.gz 2>/dev/null | tail -n +25 | xargs -r rm -f;
+          
+          echo "[$$(date)] Backup complete";
+        }
+        
+        echo 'Waiting for database...';
+        while ! mysqladmin ping -h hts-db -u root --silent 2>/dev/null; do sleep 5; done;
+        
+        backup;
+        while true; do sleep 21600; backup; done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+
+  traffic-analytics:
+    container_name: hts-traffic-analytics
+    image: ghost/traffic-analytics:1.0.23@sha256:e55789b748f3de9df44e803dff6f90251330270227fefab7e2bcdf185e3291c6
+    restart: always
+    expose:
+      - "3000"
+    volumes:
+      - traffic_analytics_data:/data
+      - tinybird_token:/tinybird:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # Wait for Tinybird token file
+        echo "Waiting for Tinybird token...";
+        while [ ! -f /tinybird/token ]; do sleep 1; done;
+        
+        # Read the token
+        TOKEN=$$(cat /tinybird/token);
+        echo "Token loaded: $${TOKEN:0:40}...";
+        
+        # Verify token is valid by checking with Tinybird
+        echo "Verifying token with Tinybird...";
+        VERIFY_ATTEMPTS=0;
+        while [ $$VERIFY_ATTEMPTS -lt 10 ]; do
+          HEALTH=$$(wget -q -O - "http://tinybird.local:7181/v0/pipes?token=$$TOKEN" 2>/dev/null | grep -c "pipes" || echo "0");
+          if [ "$$HEALTH" -gt 0 ]; then
+            echo "Token verified successfully!";
+            break;
+          fi
+          VERIFY_ATTEMPTS=$$((VERIFY_ATTEMPTS + 1));
+          echo "Token verification attempt $$VERIFY_ATTEMPTS/10 failed, re-reading token...";
+          sleep 3;
+          TOKEN=$$(cat /tinybird/token);
+        done
+        
+        if [ $$VERIFY_ATTEMPTS -eq 10 ]; then
+          echo "WARNING: Could not verify token, proceeding anyway...";
+        fi
+        
+        # NOTE: HMAC validation is DISABLED for self-hosted Ghost
+        # Ghost's built-in tracker doesn't send HMAC signatures for local Tinybird
+        # The traffic-analytics service is only accessible internally via Caddy reverse proxy
+        echo "HMAC validation: DISABLED (self-hosted mode)";
+        echo "Starting traffic-analytics with PROXY_TARGET: http://tinybird.local:7181/v0/events?name=analytics_events&token=$${TOKEN:0:30}...";
+        
+        exec env \
+          PROXY_TARGET="http://tinybird.local:7181/v0/events?name=analytics_events&token=$$TOKEN" \
+          TINYBIRD_TRACKER_TOKEN="$$TOKEN" \
+          node /app/dist/server.js
+    environment:
+      NODE_ENV: production
+      SALT_STORE_TYPE: ${SALT_STORE_TYPE:-file}
+      SALT_STORE_FILE_PATH: /data/salts.json
+      LOG_LEVEL: debug
+    depends_on:
+      tinybird-token-extractor:
+        condition: service_completed_successfully
+    networks:
+      - default
+
+# ===========================================
+# VOLUMES
+# ===========================================
+# CRITICAL: The following volumes are EXTERNAL and will NOT be deleted by 'docker compose down -v'
+# 
+# FIRST-TIME SETUP - Create these volumes ONCE before starting:
+#   docker volume create hts_mysql_data
+#   docker volume create hts_db_backups  
+#   docker volume create hts_ghost_content
+#   docker volume create hts_tinybird_data
+#   docker volume create hts_mailserver_data
+#   docker volume create hts_mailserver_state
+#   docker volume create hts_mailserver_config
+#
+# Or run this one-liner:
+#   for vol in hts_mysql_data hts_db_backups hts_ghost_content hts_tinybird_data hts_mailserver_data hts_mailserver_state hts_mailserver_config; do docker volume create $vol; done
+#
+# To COMPLETELY reset (DESTRUCTIVE - loses all data):
+#   docker volume rm hts_mysql_data hts_db_backups hts_ghost_content hts_tinybird_data hts_mailserver_data hts_mailserver_state hts_mailserver_config
+# ===========================================
+volumes:
+  # --- EPHEMERAL (recreated on compose down -v) ---
+  caddy_data:
+    name: hts_caddy_data
+  caddy_config:
+    name: hts_caddy_config
+  tinybird_project:
+    name: hts_tinybird_project
+    external: true
+  tinybird_token:
+    name: hts_tinybird_token
+  traffic_analytics_data:
+    name: hts_traffic_analytics_data
+  mailserver_logs:
+    name: hts_mailserver_logs
+
+  # --- PERSISTENT (external - survives compose down -v) ---
+  mysql_data:
+    name: hts_mysql_data
+    external: true
+  db_backups:
+    name: hts_db_backups
+    external: true
+  ghost_content:
+    name: hts_ghost_content
+    external: true
+  tinybird_data:
+    name: hts_tinybird_data
+    external: true
+  mailserver_data:
+    name: hts_mailserver_data
+    external: true
+  mailserver_state:
+    name: hts_mailserver_state
+    external: true
+  mailserver_config:
+    name: hts_mailserver_config
+    external: true
+  theme_source:
+    name: hts_theme_source
+    external: true
+
+# ===========================================
+# NETWORKS
+# ===========================================
+networks:
+  default:
+    name: hts_network

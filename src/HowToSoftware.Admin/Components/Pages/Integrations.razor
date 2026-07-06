@@ -1,0 +1,192 @@
+@page "/integrations"
+@using HowToSoftware.Core.Entities
+@using HowToSoftware.Core.Interfaces
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@inject IIntegrationService IntegrationService
+@rendermode InteractiveServer
+
+<PageTitle>Integrations — HowToSoftware Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Integrations</h1>
+    <a href="integrations/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New integration</a>
+</div>
+
+<!-- Built-in Integrations -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h6 class="mb-0">Built-in integrations</h6>
+    </div>
+    <div class="card-body text-muted small">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-gear-fill"></i>
+            <span>Built-in integrations are managed automatically by the system.</span>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Integrations -->
+<div class="mb-2">
+    <h5>Custom integrations</h5>
+</div>
+
+<!-- Bulk Actions -->
+@if (selectedIds.Count > 0)
+{
+    <div class="alert alert-info d-flex align-items-center gap-2 py-2">
+        <strong>@selectedIds.Count selected</strong>
+        <button class="btn btn-sm btn-outline-danger" @onclick="() => showDeleteConfirm = true">
+            <i class="bi bi-trash-fill me-1"></i>Delete
+        </button>
+        <button class="btn btn-sm btn-link text-muted" @onclick="ClearSelection">Clear</button>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteConfirm)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> integration(s)? Their API keys and webhooks will also be removed. This cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button class="btn btn-danger" @onclick="BulkDeleteAsync">
+                        <i class="bi bi-trash-fill me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Integrations Table -->
+@if (integrations is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (integrations.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-plug display-4 d-block mb-2"></i>
+            No custom integrations yet. Create one to get API keys.
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 40px">
+                            <input type="checkbox" class="form-check-input" checked="@allSelected"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th>Name</th>
+                        <th>API Keys</th>
+                        <th>Webhooks</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var integration in integrations)
+                    {
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       checked="@selectedIds.Contains(integration.Id)"
+                                       @onchange="() => ToggleSelection(integration.Id)" />
+                            </td>
+                            <td>
+                                <a href="integrations/@integration.Id/edit" class="fw-medium text-decoration-none text-body">
+                                    <i class="bi bi-plug-fill me-1 text-muted"></i>@integration.Name
+                                </a>
+                                @if (!string.IsNullOrEmpty(integration.Description))
+                                {
+                                    <span class="text-muted small d-none d-md-inline">
+                                        — @Truncate(integration.Description, 60)
+                                    </span>
+                                }
+                            </td>
+                            <td class="text-muted small">@integration.ApiKeys.Count key(s)</td>
+                            <td class="text-muted small">@integration.Webhooks.Count webhook(s)</td>
+                            <td class="text-muted small">@integration.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">@integrations.Count integration(s)</small>
+    </div>
+}
+
+@code {
+    private List<Integration>? integrations;
+
+    // Selection
+    private HashSet<string> selectedIds = [];
+    private bool showDeleteConfirm;
+
+    private bool allSelected => integrations is { Count: > 0 }
+        && integrations.All(i => selectedIds.Contains(i.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        integrations = await IntegrationService.GetAllAsync();
+    }
+
+    private void ToggleSelection(string id)
+    {
+        if (!selectedIds.Remove(id))
+            selectedIds.Add(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (allSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = [.. integrations!.Select(i => i.Id)];
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (selectedIds.Count == 0) return;
+        foreach (var id in selectedIds)
+            await IntegrationService.DeleteAsync(id);
+        selectedIds.Clear();
+        showDeleteConfirm = false;
+        await LoadAsync();
+    }
+
+    private static string Truncate(string text, int maxLength)
+        => text.Length <= maxLength ? text : string.Concat(text.AsSpan(0, maxLength), "…");
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

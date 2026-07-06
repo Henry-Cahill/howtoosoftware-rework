@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: Restore ──────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+WORKDIR /src
+
+# Copy solution-level build props (TargetFramework, central package versions)
+COPY Directory.Build.props ./
+COPY Directory.Packages.props ./
+
+# Copy project files first for layer caching
+COPY src/HowToSoftware.Core/HowToSoftware.Core.csproj             src/HowToSoftware.Core/
+COPY src/HowToSoftware.Infrastructure/HowToSoftware.Infrastructure.csproj src/HowToSoftware.Infrastructure/
+COPY src/HowToSoftware.Admin/HowToSoftware.Admin.csproj           src/HowToSoftware.Admin/
+
+RUN dotnet restore src/HowToSoftware.Admin/HowToSoftware.Admin.csproj
+
+# ── Stage 2: Publish ──────────────────────────────────────────────
+FROM restore AS publish
+COPY src/HowToSoftware.Core/       src/HowToSoftware.Core/
+COPY src/HowToSoftware.Infrastructure/ src/HowToSoftware.Infrastructure/
+COPY src/HowToSoftware.Admin/      src/HowToSoftware.Admin/
+
+RUN dotnet publish src/HowToSoftware.Admin/HowToSoftware.Admin.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore
+
+# ── Stage 3: Runtime ─────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+EXPOSE 5001
+
+# Install curl for Docker HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Run as non-root
+RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
+RUN mkdir -p /app/keys /app/wwwroot/content && chown -R appuser:appgroup /app/keys /app/wwwroot/content
+USER appuser
+
+COPY --from=publish /app/publish .
+
+ENTRYPOINT ["dotnet", "HowToSoftware.Admin.dll"]

@@ -1,0 +1,130 @@
+@page
+@model HowToSoftware.Admin.Pages.Account.LoginModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign In — HowToSoftware</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <style>
+        body {
+            background-color: #15171a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background-color: #1e2025;
+            border-radius: 6px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        .login-card h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            text-align: center;
+        }
+        .login-card .subtitle {
+            color: #a0a0a0;
+            text-align: center;
+            margin-bottom: 1.75rem;
+            font-size: 0.9rem;
+        }
+        .form-label {
+            color: #a0a0a0;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .form-control {
+            background-color: #2a2d32;
+            border: 1px solid #394046;
+            color: #fff;
+            padding: 0.6rem 0.75rem;
+        }
+        .form-control:focus {
+            background-color: #2a2d32;
+            border-color: #a78bfa;
+            color: #fff;
+            box-shadow: 0 0 0 0.2rem rgba(167, 139, 250, 0.25);
+        }
+        .btn-signin {
+            background-color: #a78bfa;
+            border: none;
+            color: #fff;
+            font-weight: 600;
+            padding: 0.6rem;
+            width: 100%;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+        .btn-signin:hover {
+            background-color: #8b6de0;
+            color: #fff;
+        }
+        .btn-signin:disabled {
+            opacity: 0.6;
+        }
+        .alert-danger {
+            background-color: #3d1f24;
+            border-color: #6b2c34;
+            color: #f8a0a0;
+            font-size: 0.875rem;
+        }
+        .form-check-input:checked {
+            background-color: #a78bfa;
+            border-color: #a78bfa;
+        }
+        .form-check-label {
+            color: #a0a0a0;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>HowToSoftware</h1>
+        <p class="subtitle">Sign in to the admin panel</p>
+
+        @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                @Model.ErrorMessage
+            </div>
+        }
+
+        <form method="post">
+            <div class="mb-3">
+                <label asp-for="Input.Email" class="form-label">Email address</label>
+                <input asp-for="Input.Email" class="form-control" type="email" autocomplete="email" autofocus required />
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Password" class="form-label">Password</label>
+                <input asp-for="Input.Password" class="form-control" type="password" autocomplete="current-password" required />
+            </div>
+            <div class="mb-3 form-check">
+                <input asp-for="Input.RememberMe" class="form-check-input" type="checkbox" />
+                <label asp-for="Input.RememberMe" class="form-check-label">Remember me</label>
+            </div>
+            <button type="submit" class="btn btn-signin">Sign in</button>
+        </form>
+    </div>
+</body>
+</html>
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@

@@ -1,0 +1,292 @@
+@page "/{slug}"
+@model PostModel
+@{
+    var post = Model.Post;
+    var primaryTag = Model.PrimaryTag;
+    var authors = Model.Authors;
+}
+
+@if (Model.IsPage)
+{
+    <partial name="Page" model="Model" />
+}
+else
+{
+<main id="site-main" class="site-main">
+<article class="article post @(post.Featured ? "featured" : "")">
+
+    <header class="article-header gh-canvas">
+
+        @* ── Primary tag + featured badge ── *@
+        <div class="article-tag post-card-tags">
+            @if (primaryTag is not null)
+            {
+                <span class="post-card-primary-tag">
+                    <a href="/tag/@primaryTag.Slug/">@primaryTag.Name</a>
+                </span>
+            }
+            @if (post.Featured)
+            {
+                <span class="post-card-featured">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                        <path d="M12 2c.5 0 .9.3 1 .8L14.3 8l5.4.4c.5 0 .9.4.9.9s-.1.8-.5 1l-4.2 3.3 1.4 5.3c.1.5-.1 1-.5 1.2-.4.2-.9.2-1.3-.1L12 17.2l-4.5 2.8c-.4.3-.9.3-1.3.1-.4-.2-.6-.7-.5-1.2l1.4-5.3L2.9 10c-.3-.3-.5-.6-.5-1s.4-.9.9-.9L8.7 8l1.3-5.2c.1-.5.5-.8 1-.8Z" />
+                    </svg>
+                    Featured
+                </span>
+            }
+        </div>
+
+        <h1 class="article-title">@post.Title</h1>
+
+        @if (!string.IsNullOrEmpty(post.CustomExcerpt))
+        {
+            <p class="article-excerpt">@post.CustomExcerpt</p>
+        }
+
+        @* ── Byline: author avatars, names, date, reading time ── *@
+        <div class="article-byline">
+        <section class="article-byline-content">
+
+            <ul class="author-list">
+                @foreach (var author in authors)
+                {
+                    <li class="author-list-item">
+                        @if (!string.IsNullOrEmpty(author.ProfileImage))
+                        {
+                            <a href="/author/@author.Slug/" class="author-avatar" aria-label="Read more of @author.Name">
+                                <img class="author-profile-image" src="@author.ProfileImage" alt="@author.Name" />
+                            </a>
+                        }
+                        else
+                        {
+                            <a href="/author/@author.Slug/" class="author-avatar author-profile-image" aria-label="Read more of @author.Name">
+                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor">
+                                    <path d="M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 12c5.52 0 10 2.24 10 5v3H2v-3c0-2.76 4.48-5 10-5Z" />
+                                </svg>
+                            </a>
+                        }
+                    </li>
+                }
+            </ul>
+
+            <div class="article-byline-meta">
+                <h4 class="author-name">
+                    @for (var i = 0; i < authors.Count; i++)
+                    {
+                        if (i > 0) { <text>, </text> }
+                        <a href="/author/@authors[i].Slug/">@authors[i].Name</a>
+                    }
+                </h4>
+                <div class="byline-meta-content">
+                    @if (post.PublishedAt.HasValue)
+                    {
+                        <time class="byline-meta-date" datetime="@post.PublishedAt.Value.ToString("yyyy-MM-dd")">@post.PublishedAt.Value.ToString("dd MMM yyyy")</time>
+                    }
+                    @if (Model.ReadingTimeMinutes > 0)
+                    {
+                        <span class="byline-reading-time"><span class="bull">&bull;</span> @Model.ReadingTimeMinutes min read</span>
+                    }
+                </div>
+            </div>
+
+        </section>
+        </div>
+
+        @* ── Feature image ── *@
+        @if (!string.IsNullOrEmpty(post.FeatureImage))
+        {
+            <figure class="article-image">
+                <img srcset="@(post.FeatureImage)?w=300 300w,
+                             @(post.FeatureImage)?w=600 600w,
+                             @(post.FeatureImage)?w=1000 1000w,
+                             @(post.FeatureImage)?w=2000 2000w"
+                     sizes="(min-width: 1400px) 1400px, 92vw"
+                     src="@(post.FeatureImage)?w=2000"
+                     alt="@(post.Meta?.FeatureImageAlt ?? post.Title)" />
+                @if (!string.IsNullOrEmpty(post.Meta?.FeatureImageCaption))
+                {
+                    <figcaption>@Html.Raw(post.Meta.FeatureImageCaption)</figcaption>
+                }
+            </figure>
+        }
+
+    </header>
+
+    @* ── Post content ── *@
+    @if (Model.IsContentGated)
+    {
+        <partial name="_ContentGate" model="Model.AccessLevel" />
+    }
+    else
+    {
+    <section class="gh-content gh-canvas">
+        @Html.Raw(Model.RenderedContent)
+    </section>
+    }
+
+    @* ── Tags ── *@
+    @if (Model.PublicTags.Count > 0)
+    {
+        <footer class="article-footer gh-canvas">
+            <div class="post-card-tags">
+                @foreach (var tag in Model.PublicTags)
+                {
+                    <a class="post-tag" href="/tag/@tag.Slug/">@tag.Name</a>
+                }
+            </div>
+        </footer>
+    }
+
+    @* ── Author box ── *@
+    @foreach (var author in authors)
+    {
+        <section class="author-card gh-canvas">
+            @if (!string.IsNullOrEmpty(author.ProfileImage))
+            {
+                <a href="/author/@author.Slug/" class="author-card-image">
+                    <img src="@author.ProfileImage" alt="@author.Name" />
+                </a>
+            }
+            <div class="author-card-content">
+                <h4 class="author-card-name"><a href="/author/@author.Slug/">@author.Name</a></h4>
+                @if (!string.IsNullOrEmpty(author.Bio))
+                {
+                    <p class="author-card-bio">@author.Bio</p>
+                }
+                <div class="author-card-meta">
+                    @if (!string.IsNullOrEmpty(author.Website))
+                    {
+                        <a class="author-card-link" href="@author.Website" target="_blank" rel="noopener">Website</a>
+                    }
+                    @if (!string.IsNullOrEmpty(author.Twitter))
+                    {
+                        <a class="author-card-link" href="https://twitter.com/@(author.Twitter.TrimStart('@'))" target="_blank" rel="noopener">Twitter</a>
+                    }
+                    @if (!string.IsNullOrEmpty(author.Facebook))
+                    {
+                        <a class="author-card-link" href="https://facebook.com/@author.Facebook" target="_blank" rel="noopener">Facebook</a>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+
+    @* ── Webmentions ── *@
+    @if (Model.Mentions.Count > 0)
+    {
+        <section class="article-mentions gh-canvas">
+            <h3>Mentions (@Model.Mentions.Count)</h3>
+            <div class="mentions-list">
+                @foreach (var mention in Model.Mentions)
+                {
+                    <div class="mention-item">
+                        @if (!string.IsNullOrEmpty(mention.SourceFavicon))
+                        {
+                            <img src="@mention.SourceFavicon" alt="" width="20" height="20" class="mention-favicon" loading="lazy" />
+                        }
+                        <div class="mention-content">
+                            <a href="@mention.Source" class="mention-source" target="_blank" rel="noopener noreferrer">
+                                @(mention.SourceTitle ?? mention.Source)
+                            </a>
+                            @if (!string.IsNullOrEmpty(mention.SourceAuthor))
+                            {
+                                <span class="mention-author">by @mention.SourceAuthor</span>
+                            }
+                            @if (!string.IsNullOrEmpty(mention.SourceExcerpt))
+                            {
+                                <p class="mention-excerpt">@mention.SourceExcerpt</p>
+                            }
+                            <time class="mention-date" datetime="@mention.CreatedAt.ToString("yyyy-MM-dd")">@mention.CreatedAt.ToString("dd MMM yyyy")</time>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+    @* ── Comments section ── *@
+    <section class="article-comments gh-canvas">
+        <div class="comment-section" id="comments" data-post-id="@post.Id">
+            <h3>Comments (<span id="comment-count">0</span>)</h3>
+
+            @if (User.Identity?.AuthenticationType == "MemberCookie" && User.Identity.IsAuthenticated)
+            {
+                <form class="comment-form" id="comment-form">
+                    <textarea id="comment-input" placeholder="Join the discussion…" maxlength="10000" rows="3" required></textarea>
+                    <button type="submit" class="comment-submit-btn">Comment</button>
+                </form>
+            }
+            else
+            {
+                <p class="comment-cta">
+                    <a href="/signin/">Sign in</a> or <a href="/signup/">sign up</a> to leave a comment.
+                </p>
+            }
+
+            <div id="comments-list"></div>
+            <div id="comments-pagination"></div>
+        </div>
+    </section>
+
+</article>
+</main>
+} @* end else (post template) *@
+
+@* ── Related posts (posts only) ── *@
+@if (!Model.IsPage && Model.RelatedPosts.Count > 0)
+{
+    <aside class="read-more-wrap outer">
+        <div class="read-more inner">
+            @foreach (var card in Model.RelatedPosts)
+            {
+                <partial name="_PostCard" model="card" />
+            }
+        </div>
+    </aside>
+}
+
+@section JsonLd {
+@if (!Model.IsPage)
+{
+    var encoder = System.Text.Encodings.Web.JavaScriptEncoder.Default;
+    var authorArray = string.Join(", ", authors.Select(a =>
+        $"{{ \"@type\": \"Person\", \"name\": \"{encoder.Encode(a.Name)}\" }}"));
+    var jsonLd = new System.Text.StringBuilder();
+    jsonLd.AppendLine("{");
+    jsonLd.AppendLine($"  \"@context\": \"https://schema.org\",");
+    jsonLd.AppendLine($"  \"@type\": \"Article\",");
+    jsonLd.AppendLine($"  \"headline\": \"{encoder.Encode(post.Title)}\",");
+    if (post.FeatureImage is not null)
+    {
+        jsonLd.AppendLine($"  \"image\": \"{encoder.Encode(post.FeatureImage)}\",");
+    }
+    jsonLd.AppendLine($"  \"datePublished\": \"{post.PublishedAt?.ToString("o")}\",");
+    if (post.UpdatedAt.HasValue)
+    {
+        jsonLd.AppendLine($"  \"dateModified\": \"{post.UpdatedAt.Value.ToString("o")}\",");
+    }
+    jsonLd.AppendLine($"  \"author\": [{authorArray}],");
+    jsonLd.AppendLine($"  \"publisher\": {{ \"@type\": \"Organization\", \"name\": \"{encoder.Encode(Model.SiteTitle)}\" }},");
+    if (!string.IsNullOrEmpty(post.CustomExcerpt))
+    {
+        jsonLd.AppendLine($"  \"description\": \"{encoder.Encode(post.CustomExcerpt)}\",");
+    }
+    jsonLd.AppendLine("  \"mainEntityOfPage\": true");
+    jsonLd.AppendLine("}");
+    <script type="application/ld+json">
+        @Html.Raw(jsonLd.ToString())
+    </script>
+}
+}
+
+@section Scripts {
+@if (!Model.IsPage)
+{
+    <script src="/js/comments.js"></script>
+}
+}
+
+@*
+    © 2026 Henry Lawrence Cahill (HowToSoftware). All rights reserved.
+    Contact: henry.cahill@howtoosoftware.com | https://howtoosoftware.com
+*@
