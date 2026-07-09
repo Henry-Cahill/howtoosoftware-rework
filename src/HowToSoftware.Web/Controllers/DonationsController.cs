@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 
 namespace HowToSoftware.Web.Controllers;
 
@@ -72,7 +73,7 @@ public class DonationsController(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Donation checkout failed for {Email}", request.Email);
+            logger.LogError(ex, "Donation checkout failed for {Email}", LogSanitizer.SanitizeForLog(request.Email));
             return StatusCode(500, new { error = "Failed to create donation checkout session" });
         }
     }

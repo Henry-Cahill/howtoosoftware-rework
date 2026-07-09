@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using HowToSoftware.Infrastructure.Data;
 
 namespace HowToSoftware.Infrastructure.Services;
@@ -81,7 +82,7 @@ public sealed class SnippetService(
         if (deleted == 0)
             throw new InvalidOperationException($"Snippet {id} not found");
 
-        logger.LogInformation("Deleted snippet {SnippetId}", id);
+        logger.LogInformation("Deleted snippet {SnippetId}", LogSanitizer.SanitizeForLog(id));
     }
 
     public async Task<Dictionary<string, int>> GetUsageCountsAsync(CancellationToken ct = default)

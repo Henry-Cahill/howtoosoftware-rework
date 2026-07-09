@@ -74,7 +74,7 @@ public sealed class MemberService : IMemberService
         // Send welcome email via automated email service
         await _automatedEmails.SendAsync("welcome", member, request.SiteUrl, ct);
 
-        _logger.LogInformation("New member signed up: {MemberId} ({Email})", memberId, request.Email);
+        _logger.LogInformation("New member signed up: {MemberId} ({Email})", memberId, LogSanitizer.SanitizeForLog(request.Email));
 
         _webhookDispatch.Enqueue("member.added", new { id = member.Id, email = member.Email, name = member.Name, status = member.Status });
 

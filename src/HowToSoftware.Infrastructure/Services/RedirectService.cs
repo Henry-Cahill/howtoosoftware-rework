@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using HowToSoftware.Infrastructure.Data;
 
 namespace HowToSoftware.Infrastructure.Services;
@@ -93,7 +94,7 @@ public sealed class RedirectService(
         if (deleted == 0)
             throw new InvalidOperationException($"Redirect {id} not found");
 
-        logger.LogInformation("Deleted redirect {RedirectId}", id);
+        logger.LogInformation("Deleted redirect {RedirectId}", LogSanitizer.SanitizeForLog(id));
     }
 
     public async Task IncrementHitCountAsync(string id, CancellationToken ct = default)

@@ -1,0 +1,59 @@
+name: "CodeQL"
+
+# Advanced CodeQL setup.
+#
+# This replaces GitHub's "default setup" so we can apply path exclusions via
+# .github/codeql/codeql-config.yml (default setup does not support
+# paths-ignore). To activate it, switch the repository's code-scanning
+# configuration from "Default" to "Advanced" under
+# Settings -> Code security -> Code scanning; otherwise the SARIF upload from
+# this workflow is rejected while default setup remains enabled.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly scan, Mondays 03:27 UTC.
+    - cron: "27 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to upload code-scanning results.
+      security-events: write
+      # Required to fetch internal or private CodeQL packs.
+      packages: read
+      # Only required for workflows in private repositories.
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # build-mode: none analyzes source without a full build, so no .NET
+          # SDK / restore step (and no .slnx autobuild support) is required.
+          - language: csharp
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -178,7 +178,7 @@ public sealed class StripeService : IStripeService
 
         await SyncProductToStripeAsync(product.Id, ct);
 
-        _logger.LogInformation("Updated product {ProductId}", productId);
+        _logger.LogInformation("Updated product {ProductId}", LogSanitizer.SanitizeForLog(productId));
     }
 
     public async Task ArchiveProductAsync(string productId, CancellationToken ct = default)
@@ -207,7 +207,7 @@ public sealed class StripeService : IStripeService
             }
         }
 
-        _logger.LogInformation("Archived product {ProductId}", productId);
+        _logger.LogInformation("Archived product {ProductId}", LogSanitizer.SanitizeForLog(productId));
     }
 
     public async Task ReorderProductsAsync(IReadOnlyList<string> orderedProductIds, CancellationToken ct = default)
@@ -263,7 +263,8 @@ public sealed class StripeService : IStripeService
 
         if (string.IsNullOrEmpty(_settings.SecretKey))
         {
-            _logger.LogWarning("Stripe secret key not configured — skipping sync for product {ProductId}", productId);
+            _logger.LogWarning("Stripe secret key not configured — skipping sync for product {ProductId}",
+                LogSanitizer.SanitizeForLog(productId));
             return;
         }
 
@@ -455,7 +456,8 @@ public sealed class StripeService : IStripeService
 
         _logger.LogInformation(
             "Created checkout session {SessionId} for member {MemberId} → product {ProductId} ({Cadence})",
-            session.Id, memberId, productId, cadence);
+            session.Id, LogSanitizer.SanitizeForLog(memberId), LogSanitizer.SanitizeForLog(productId),
+            LogSanitizer.SanitizeForLog(cadence));
 
         return session.Url;
     }

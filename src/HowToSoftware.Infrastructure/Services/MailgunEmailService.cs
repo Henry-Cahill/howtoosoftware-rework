@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
@@ -63,7 +64,8 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
             await smtp.SendAsync(mime, ct);
             await smtp.DisconnectAsync(quit: true, ct);
 
-            _logger.LogInformation("Email sent to {To} subject=\"{Subject}\"", message.To, message.Subject);
+            _logger.LogInformation("Email sent to {To} subject=\"{Subject}\"",
+                LogSanitizer.MaskEmail(message.To), LogSanitizer.SanitizeForLog(message.Subject));
 
             return new EmailSendResult
             {
@@ -73,7 +75,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {To}", message.To);
+            _logger.LogError(ex, "Failed to send email to {To}", LogSanitizer.MaskEmail(message.To));
 
             return new EmailSendResult
             {
@@ -117,10 +119,19 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
             results.AddRange(chunkResults);
         }
 
-        var succeeded = results.Count(r => r.Success);
-        var failed = results.Count - succeeded;
+        // Tally outcomes with primitive counters so the summary isn't derived
+        // from the email-bearing result list (cs/exposure-of-sensitive-information).
+        var succeeded = 0;
+        var total = 0;
+        foreach (var r in results)
+        {
+            total++;
+            if (r.Success)
+                succeeded++;
+        }
+        var failed = total - succeeded;
         _logger.LogInformation("Batch complete: {Succeeded} sent, {Failed} failed out of {Total}",
-            succeeded, failed, results.Count);
+            succeeded, failed, total);
 
         return results;
     }
@@ -189,7 +200,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
                     {
                         attempt++;
                         _logger.LogWarning(ex, "Transient SMTP error for {Email}, retry {Attempt}/{Max}",
-                            email, attempt, _settings.MaxRetries);
+                            LogSanitizer.MaskEmail(email), attempt, _settings.MaxRetries);
 
                         // Reconnect on transient errors
                         smtp.Dispose();
@@ -198,7 +209,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to send to {Email} after {Attempts} attempts",
-                            email, attempt + 1);
+                            LogSanitizer.MaskEmail(email), attempt + 1);
 
                         result = new EmailSendResult
                         {

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 
 namespace HowToSoftware.Web.Controllers;
 
@@ -84,7 +85,8 @@ public class OffersController(
         }
         catch (InvalidOperationException ex)
         {
-            logger.LogWarning(ex, "Checkout failed for offer {Code} member {MemberId}", code, memberId);
+            logger.LogWarning(ex, "Checkout failed for offer {Code} member {MemberId}",
+                LogSanitizer.SanitizeForLog(code), LogSanitizer.SanitizeForLog(memberId));
             return BadRequest(new { error = ex.Message });
         }
     }

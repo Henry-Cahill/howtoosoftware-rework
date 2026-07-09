@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 
 namespace HowToSoftware.Web.Controllers;
 
@@ -45,7 +46,7 @@ public class WebmentionController(
             var mention = await mentionService.ReceiveAsync(source, target, ct);
 
             logger.LogInformation("Webmention received: {Source} → {Target} (verified={Verified})",
-                source, target, mention.Verified);
+                LogSanitizer.SanitizeForLog(source), LogSanitizer.SanitizeForLog(target), mention.Verified);
 
             // Per the spec, return 202 Accepted for async processing
             return Accepted(new

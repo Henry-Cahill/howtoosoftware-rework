@@ -96,7 +96,7 @@ public sealed class RecommendationService : IRecommendationService
         recommendation.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Updated recommendation {RecommendationId}", id);
+        _logger.LogInformation("Updated recommendation {RecommendationId}", LogSanitizer.SanitizeForLog(id));
     }
 
     // ================================================================
@@ -111,7 +111,7 @@ public sealed class RecommendationService : IRecommendationService
         _db.Recommendations.Remove(recommendation);
         await _db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Deleted recommendation {RecommendationId}", id);
+        _logger.LogInformation("Deleted recommendation {RecommendationId}", LogSanitizer.SanitizeForLog(id));
     }
 
     // ================================================================

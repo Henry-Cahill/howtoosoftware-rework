@@ -55,7 +55,7 @@ public sealed class CommentService(
         await members.UpdateAsync(member, ct);
 
         logger.LogInformation("Comment {CommentId} added to post {PostId} by member {MemberId}",
-            comment.Id, postId, memberId);
+            comment.Id, LogSanitizer.SanitizeForLog(postId), LogSanitizer.SanitizeForLog(memberId));
 
         return comment;
     }
@@ -78,7 +78,8 @@ public sealed class CommentService(
 
         await comments.UpdateAsync(comment, ct);
 
-        logger.LogInformation("Comment {CommentId} edited by member {MemberId}", commentId, memberId);
+        logger.LogInformation("Comment {CommentId} edited by member {MemberId}",
+            LogSanitizer.SanitizeForLog(commentId), LogSanitizer.SanitizeForLog(memberId));
 
         return comment;
     }
@@ -94,7 +95,8 @@ public sealed class CommentService(
 
         await comments.DeleteAsync(commentId, ct);
 
-        logger.LogInformation("Comment {CommentId} deleted by member {MemberId}", commentId, memberId);
+        logger.LogInformation("Comment {CommentId} deleted by member {MemberId}",
+            LogSanitizer.SanitizeForLog(commentId), LogSanitizer.SanitizeForLog(memberId));
     }
 
     public async Task<CommentLike> LikeCommentAsync(
@@ -120,7 +122,8 @@ public sealed class CommentService(
 
         await comments.AddLikeAsync(like, ct);
 
-        logger.LogInformation("Comment {CommentId} liked by member {MemberId}", commentId, memberId);
+        logger.LogInformation("Comment {CommentId} liked by member {MemberId}",
+            LogSanitizer.SanitizeForLog(commentId), LogSanitizer.SanitizeForLog(memberId));
 
         return like;
     }
@@ -133,7 +136,8 @@ public sealed class CommentService(
 
         await comments.RemoveLikeAsync(commentId, memberId, ct);
 
-        logger.LogInformation("Comment {CommentId} unliked by member {MemberId}", commentId, memberId);
+        logger.LogInformation("Comment {CommentId} unliked by member {MemberId}",
+            LogSanitizer.SanitizeForLog(commentId), LogSanitizer.SanitizeForLog(memberId));
     }
 
     public async Task<CommentReport> ReportCommentAsync(
@@ -159,7 +163,8 @@ public sealed class CommentService(
 
         await comments.AddReportAsync(report, ct);
 
-        logger.LogInformation("Comment {CommentId} reported by member {MemberId}", commentId, memberId);
+        logger.LogInformation("Comment {CommentId} reported by member {MemberId}",
+            LogSanitizer.SanitizeForLog(commentId), LogSanitizer.SanitizeForLog(memberId));
 
         return report;
     }
@@ -174,7 +179,7 @@ public sealed class CommentService(
 
         await comments.UpdateAsync(comment, ct);
 
-        logger.LogInformation("Comment {CommentId} hidden by admin", commentId);
+        logger.LogInformation("Comment {CommentId} hidden by admin", LogSanitizer.SanitizeForLog(commentId));
     }
 
     public async Task ApproveCommentAsync(string commentId, CancellationToken ct = default)
@@ -187,7 +192,7 @@ public sealed class CommentService(
 
         await comments.UpdateAsync(comment, ct);
 
-        logger.LogInformation("Comment {CommentId} approved by admin", commentId);
+        logger.LogInformation("Comment {CommentId} approved by admin", LogSanitizer.SanitizeForLog(commentId));
     }
 
     public Task<PagedResult<Comment>> GetCommentsForPostAsync(

@@ -38,9 +38,9 @@
     function logInfo(msg, data) {
         if (!DEBUG) return;
         if (data !== undefined) {
-            console.log('%c' + DEBUG_PREFIX + ' ℹ️ ' + msg, 'color: #667eea; font-weight: bold;', data);
+            console.log('%c' + DEBUG_PREFIX + ' ℹ️ %s', 'color: #667eea; font-weight: bold;', msg, data);
         } else {
-            console.log('%c' + DEBUG_PREFIX + ' ℹ️ ' + msg, 'color: #667eea; font-weight: bold;');
+            console.log('%c' + DEBUG_PREFIX + ' ℹ️ %s', 'color: #667eea; font-weight: bold;', msg);
         }
     }
     
