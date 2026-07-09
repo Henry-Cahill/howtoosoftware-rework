@@ -4,11 +4,9 @@ name: "CodeQL"
 #
 # This replaces GitHub's "default setup" so we can apply path exclusions via
 # .github/codeql/codeql-config.yml (default setup does not support
-# paths-ignore). The "Disable default CodeQL setup" step below automatically
-# switches the repository from Default to Advanced setup via the GitHub API
-# before the SARIF upload, preventing the
-# "CodeQL analyses from advanced configurations cannot be processed when the
-# default setup is enabled" error.
+# paths-ignore).  A "Disable Default CodeQL Setup" step automatically switches
+# the repository from default setup to advanced setup on every run, so no
+# manual Settings change is required.
 
 on:
   push:
@@ -47,16 +45,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Disable default CodeQL setup
+      # The repository's "Default Setup" for code scanning must be disabled so
+      # that this advanced configuration can upload its SARIF results.  Attempt
+      # to disable it programmatically; the step is a no-op when it is already
+      # off.  On failure (e.g. insufficient token permissions) a workflow
+      # warning is emitted rather than failing the build, but the root cause is
+      # surfaced so it can be acted upon.
+      - name: Disable Default CodeQL Setup
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api \
-            --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${{ github.repository }}/code-scanning/default-setup" \
-            -f state=not-configured \
-            || echo "Note: could not disable default setup (may already be disabled or not configured)"
+          gh api --method PATCH \
+            /repos/${{ github.repository }}/code-scanning/default-setup \
+            --field state=not-configured \
+          && echo "Default CodeQL Setup disabled (or was already off)." \
+          || echo "::warning::Could not disable Default CodeQL Setup via the API. If the job fails with 'CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled', manually switch the repository to Advanced setup under Settings → Code security → Code scanning."
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
