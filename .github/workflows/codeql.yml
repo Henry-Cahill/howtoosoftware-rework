@@ -4,10 +4,11 @@ name: "CodeQL"
 #
 # This replaces GitHub's "default setup" so we can apply path exclusions via
 # .github/codeql/codeql-config.yml (default setup does not support
-# paths-ignore). To activate it, switch the repository's code-scanning
-# configuration from "Default" to "Advanced" under
-# Settings -> Code security -> Code scanning; otherwise the SARIF upload from
-# this workflow is rejected while default setup remains enabled.
+# paths-ignore). The "Disable default CodeQL setup" step below automatically
+# switches the repository from Default to Advanced setup via the GitHub API
+# before the SARIF upload, preventing the
+# "CodeQL analyses from advanced configurations cannot be processed when the
+# default setup is enabled" error.
 
 on:
   push:
@@ -45,6 +46,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Disable default CodeQL setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/code-scanning/default-setup" \
+            -f state=not-configured \
+            || echo "Note: could not disable default setup (may already be disabled or not configured)"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
