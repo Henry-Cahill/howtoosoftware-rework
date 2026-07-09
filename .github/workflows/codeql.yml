@@ -4,12 +4,22 @@ name: "CodeQL"
 #
 # This replaces GitHub's "default setup" so we can apply path exclusions via
 # .github/codeql/codeql-config.yml (default setup does not support
-# paths-ignore).  The "Disable Default CodeQL Setup" step requires a token
-# with `administration: write`; the default `github.token` cannot be granted
-# that scope.  Store a fine-grained PAT or GitHub App installation token with
-# `administration: write` as the repository secret GH_ADMIN_TOKEN.  Without
-# it the step will return 403 and Default Setup must be disabled manually
-# under Settings → Code security → Code scanning.
+# paths-ignore).  The "Disable Default CodeQL Setup" step attempts to turn off
+# Default Setup so this advanced configuration can upload its SARIF results.
+#
+# Disabling Default Setup via the API requires a token with
+# `administration: write`.  The default `github.token` cannot be granted that
+# scope, so a separate secret is needed:
+#
+#   • Set the repository secret GH_ADMIN_TOKEN to a fine-grained PAT (or
+#     GitHub App installation token) with `administration: write` on this repo.
+#   • Alternatively, disable Default Setup manually once via
+#     Settings → Code security → Code scanning → disable Default Setup.
+#
+# If neither is done the disable step will fail and the analysis steps are
+# skipped automatically (the job still passes with a warning) to avoid the
+# fatal "CodeQL analyses from advanced configurations cannot be processed when
+# the default setup is enabled" upload error.
 
 on:
   push:
@@ -48,25 +58,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # The repository's "Default Setup" for code scanning must be disabled so
-      # that this advanced configuration can upload its SARIF results.  Attempt
-      # to disable it programmatically; the step is a no-op when it is already
-      # off.  This requires a token with `administration: write` — set the
-      # repository secret GH_ADMIN_TOKEN to a fine-grained PAT or GitHub App
-      # installation token with that permission (the default github.token is
-      # insufficient).  On failure a workflow warning is emitted rather than
-      # failing the build.
+      # Attempt to turn off the repository's Default CodeQL Setup so that this
+      # advanced configuration can upload SARIF without conflict.
+      # Requires a token with `administration: write` (github.token cannot
+      # obtain that scope).  Set GH_ADMIN_TOKEN to a fine-grained PAT with
+      # that permission, or disable Default Setup manually once via
+      # Settings → Code security → Code scanning.
+      #
+      # After the PATCH attempt we read back the current state.  If Default
+      # Setup is still "configured" we set skip=true so the two analysis steps
+      # below are bypassed; the job completes with a warning rather than
+      # crashing at the SARIF upload.
       - name: Disable Default CodeQL Setup
+        id: setup-check
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN || github.token }}
         run: |
-          gh api --method PATCH \
-            /repos/${{ github.repository }}/code-scanning/default-setup \
-            --field state=not-configured \
-          && echo "Default CodeQL Setup disabled (or was already off)." \
-          || echo "::warning::Could not disable Default CodeQL Setup via the API (the token may lack 'administration: write'). Set the repository secret GH_ADMIN_TOKEN to a fine-grained PAT with administration write permission, or manually switch the repository to Advanced setup under Settings → Code security → Code scanning."
+          if gh api --method PATCH \
+              /repos/${{ github.repository }}/code-scanning/default-setup \
+              --field state=not-configured 2>/dev/null; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Default CodeQL Setup disabled (or was already off)."
+          else
+            STATE=$(gh api /repos/${{ github.repository }}/code-scanning/default-setup \
+                --jq '.state' 2>/dev/null || echo "unknown")
+            if [ "$STATE" = "not-configured" ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Default CodeQL Setup is already off — proceeding with advanced analysis."
+            elif [ "$STATE" = "configured" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Default CodeQL Setup is enabled and could not be disabled."
+              echo "::warning::Advanced CodeQL analysis is skipped. See workflow header for remediation steps."
+            else
+              # unknown — could not confirm Default Setup is off; skip to be safe.
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Could not determine Default CodeQL Setup state (got: $STATE)."
+              echo "::warning::Advanced CodeQL analysis is skipped. See workflow header for remediation steps."
+            fi
+          fi
 
       - name: Initialize CodeQL
+        if: steps.setup-check.outputs.skip != 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
@@ -74,6 +106,7 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
+        if: steps.setup-check.outputs.skip != 'true'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
