@@ -4,9 +4,12 @@ name: "CodeQL"
 #
 # This replaces GitHub's "default setup" so we can apply path exclusions via
 # .github/codeql/codeql-config.yml (default setup does not support
-# paths-ignore).  A "Disable Default CodeQL Setup" step automatically switches
-# the repository from default setup to advanced setup on every run, so no
-# manual Settings change is required.
+# paths-ignore).  The "Disable Default CodeQL Setup" step requires a token
+# with `administration: write`; the default `github.token` cannot be granted
+# that scope.  Store a fine-grained PAT or GitHub App installation token with
+# `administration: write` as the repository secret GH_ADMIN_TOKEN.  Without
+# it the step will return 403 and Default Setup must be disabled manually
+# under Settings → Code security → Code scanning.
 
 on:
   push:
@@ -48,18 +51,20 @@ jobs:
       # The repository's "Default Setup" for code scanning must be disabled so
       # that this advanced configuration can upload its SARIF results.  Attempt
       # to disable it programmatically; the step is a no-op when it is already
-      # off.  On failure (e.g. insufficient token permissions) a workflow
-      # warning is emitted rather than failing the build, but the root cause is
-      # surfaced so it can be acted upon.
+      # off.  This requires a token with `administration: write` — set the
+      # repository secret GH_ADMIN_TOKEN to a fine-grained PAT or GitHub App
+      # installation token with that permission (the default github.token is
+      # insufficient).  On failure a workflow warning is emitted rather than
+      # failing the build.
       - name: Disable Default CodeQL Setup
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN || github.token }}
         run: |
           gh api --method PATCH \
             /repos/${{ github.repository }}/code-scanning/default-setup \
             --field state=not-configured \
           && echo "Default CodeQL Setup disabled (or was already off)." \
-          || echo "::warning::Could not disable Default CodeQL Setup via the API. If the job fails with 'CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled', manually switch the repository to Advanced setup under Settings → Code security → Code scanning."
+          || echo "::warning::Could not disable Default CodeQL Setup via the API (the token may lack 'administration: write'). Set the repository secret GH_ADMIN_TOKEN to a fine-grained PAT with administration write permission, or manually switch the repository to Advanced setup under Settings → Code security → Code scanning."
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
