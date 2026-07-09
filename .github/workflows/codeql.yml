@@ -82,15 +82,18 @@ jobs:
           else
             STATE=$(gh api /repos/${{ github.repository }}/code-scanning/default-setup \
                 --jq '.state' 2>/dev/null || echo "unknown")
-            if [ "$STATE" = "configured" ]; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "::warning::Default CodeQL Setup is enabled (state: $STATE) and could not be disabled."
-              echo "::warning::Advanced CodeQL analysis is skipped for this run. To enable it:"
-              echo "::warning::  1. Set the GH_ADMIN_TOKEN repository secret to a fine-grained PAT with administration:write permission, OR"
-              echo "::warning::  2. Disable Default Setup manually: Settings → Code security → Code scanning."
-            else
+            if [ "$STATE" = "not-configured" ]; then
               echo "skip=false" >> "$GITHUB_OUTPUT"
-              echo "Default CodeQL Setup state: $STATE — proceeding with advanced analysis."
+              echo "Default CodeQL Setup is already off — proceeding with advanced analysis."
+            elif [ "$STATE" = "configured" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Default CodeQL Setup is enabled and could not be disabled."
+              echo "::warning::Advanced CodeQL analysis is skipped. See workflow header for remediation steps."
+            else
+              # unknown — could not confirm Default Setup is off; skip to be safe.
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Could not determine Default CodeQL Setup state (got: $STATE)."
+              echo "::warning::Advanced CodeQL analysis is skipped. See workflow header for remediation steps."
             fi
           fi
 
