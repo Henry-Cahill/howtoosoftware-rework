@@ -130,7 +130,7 @@ public sealed class MemberImportService : IMemberImportService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to insert imported member {Email} on line {Line}", email, lineNumber);
+                _logger.LogWarning(ex, "Failed to insert imported member {MemberId} on line {Line}", memberId, lineNumber);
                 result.Failed++;
                 result.Errors.Add(new MemberImportRowError(lineNumber, email, $"Insert failed: {ex.Message}"));
                 continue;
@@ -196,7 +196,7 @@ public sealed class MemberImportService : IMemberImportService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to subscribe imported member {Email} to newsletter {Newsletter}", email, nl.Id);
+                        _logger.LogWarning(ex, "Failed to subscribe imported member {MemberId} to newsletter {Newsletter}", memberId, nl.Id);
                     }
                 }
             }
@@ -212,7 +212,7 @@ public sealed class MemberImportService : IMemberImportService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to link Stripe customer {Customer} for {Email}", stripeCustomerId, email);
+                    _logger.LogWarning(ex, "Failed to link Stripe customer {Customer} for {MemberId}", stripeCustomerId, memberId);
                     result.Errors.Add(new MemberImportRowError(lineNumber, email, $"Stripe link failed: {ex.Message}"));
                 }
             }

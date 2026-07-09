@@ -136,7 +136,7 @@ public sealed class OfferService : IOfferService
         offer.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Updated offer {OfferId}", offerId);
+        _logger.LogInformation("Updated offer {OfferId}", LogSanitizer.SanitizeForLog(offerId));
     }
 
     // ================================================================
@@ -159,17 +159,17 @@ public sealed class OfferService : IOfferService
                 var couponService = new CouponService();
                 await couponService.DeleteAsync(offer.StripeCouponId, cancellationToken: ct);
                 _logger.LogInformation("Deleted Stripe coupon {CouponId} for archived offer {OfferId}",
-                    offer.StripeCouponId, offerId);
+                    offer.StripeCouponId, LogSanitizer.SanitizeForLog(offerId));
             }
             catch (StripeException ex)
             {
                 _logger.LogWarning(ex, "Failed to delete Stripe coupon {CouponId} for offer {OfferId}",
-                    offer.StripeCouponId, offerId);
+                    offer.StripeCouponId, LogSanitizer.SanitizeForLog(offerId));
             }
         }
 
         await _db.SaveChangesAsync(ct);
-        _logger.LogInformation("Archived offer {OfferId}", offerId);
+        _logger.LogInformation("Archived offer {OfferId}", LogSanitizer.SanitizeForLog(offerId));
     }
 
     // ================================================================

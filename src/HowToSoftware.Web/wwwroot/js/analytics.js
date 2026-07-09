@@ -33,10 +33,15 @@
     function generateId() {
         var chars = 'abcdef0123456789';
         var parts = [8, 4, 4, 4, 12];
+        var totalLen = parts.reduce(function (a, b) { return a + b; }, 0);
+        var rnd = new Uint8Array(totalLen);
+        crypto.getRandomValues(rnd);
+        var idx = 0;
         return parts.map(function (len) {
             var s = '';
             for (var i = 0; i < len; i++) {
-                s += chars[Math.floor(Math.random() * chars.length)];
+                // chars.length (16) divides 256 evenly, so no modulo bias
+                s += chars[rnd[idx++] % chars.length];
             }
             return s;
         }).join('-');

@@ -214,7 +214,7 @@ public sealed class MagicLinkService : IMagicLinkService
 
         if (!result.Success)
         {
-            _logger.LogError("Failed to send signup verification email to {Email}: {Error}", member.Email, result.ErrorMessage);
+            _logger.LogError("Failed to send signup verification email to {Email}: {Error}", LogSanitizer.SanitizeForLog(member.Email), LogSanitizer.SanitizeForLog(result.ErrorMessage));
             return false;
         }
 

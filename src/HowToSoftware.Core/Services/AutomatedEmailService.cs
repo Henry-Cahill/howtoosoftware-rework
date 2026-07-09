@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 
 namespace HowToSoftware.Core.Services;
 
@@ -60,8 +61,8 @@ public sealed class AutomatedEmailService : IAutomatedEmailService
         // and dispatch).
         if (await _emailRepo.IsEmailSuppressedAsync(member.Email, ct))
         {
-            _logger.LogDebug("Member {Email} is suppressed, skipping automated email '{Slug}'",
-                member.Email, slug);
+            _logger.LogDebug("Member {MemberId} is suppressed, skipping automated email '{Slug}'",
+                member.Id, LogSanitizer.SanitizeForLog(slug));
             return;
         }
 
@@ -95,8 +96,8 @@ public sealed class AutomatedEmailService : IAutomatedEmailService
                     CreatedAt = DateTime.UtcNow,
                 }, ct);
                 _logger.LogInformation(
-                    "Scheduled automated email '{Slug}' for {Email} at {ScheduledFor:o} (delay={DelayMinutes}m)",
-                    target.Slug, member.Email, scheduledFor, target.DelayMinutes);
+                    "Scheduled automated email '{Slug}' for member {MemberId} at {ScheduledFor:o} (delay={DelayMinutes}m)",
+                    LogSanitizer.SanitizeForLog(target.Slug), member.Id, scheduledFor, target.DelayMinutes);
             }
         }
     }
@@ -160,8 +161,8 @@ public sealed class AutomatedEmailService : IAutomatedEmailService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to dispatch scheduled automated email '{Slug}' for {Email} (schedule={ScheduleId})",
-                automatedEmail.Slug, schedule.MemberEmail, scheduleId);
+                "Failed to dispatch scheduled automated email '{Slug}' for member {MemberId} (schedule={ScheduleId})",
+                automatedEmail.Slug, schedule.MemberId, scheduleId);
             await _repo.MarkScheduleProcessedAsync(scheduleId, DateTime.UtcNow, ex.Message, ct);
         }
     }
@@ -249,7 +250,8 @@ public sealed class AutomatedEmailService : IAutomatedEmailService
                 CreatedAt = DateTime.UtcNow,
             }, ct);
 
-            _logger.LogInformation("Sent automated email '{Slug}' to {Email}", slug, member.Email);
+            _logger.LogInformation("Sent automated email '{Slug}' to member {MemberId}",
+                LogSanitizer.SanitizeForLog(slug), member.Id);
         }
         else
         {
@@ -271,8 +273,8 @@ public sealed class AutomatedEmailService : IAutomatedEmailService
                 FailureReason = result.ErrorMessage,
             }, ct);
 
-            _logger.LogError("Failed to send automated email '{Slug}' to {Email}: {Error}",
-                slug, member.Email, result.ErrorMessage);
+            _logger.LogError("Failed to send automated email '{Slug}' to member {MemberId}: {Error}",
+                LogSanitizer.SanitizeForLog(slug), member.Id, LogSanitizer.SanitizeForLog(result.ErrorMessage));
         }
     }
 

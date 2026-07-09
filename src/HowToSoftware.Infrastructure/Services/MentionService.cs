@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using HowToSoftware.Infrastructure.Data;
 
 namespace HowToSoftware.Infrastructure.Services;
@@ -116,7 +117,7 @@ public sealed partial class MentionService(
             await db.SaveChangesAsync(ct);
 
             logger.LogInformation("Updated webmention {MentionId}: {Source} → {Target} (verified={Verified})",
-                existing.Id, source, target, verified);
+                existing.Id, LogSanitizer.SanitizeForLog(source), LogSanitizer.SanitizeForLog(target), verified);
 
             return existing;
         }
@@ -144,7 +145,7 @@ public sealed partial class MentionService(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Received webmention {MentionId}: {Source} → {Target} (verified={Verified})",
-            mention.Id, source, target, verified);
+            mention.Id, LogSanitizer.SanitizeForLog(source), LogSanitizer.SanitizeForLog(target), verified);
 
         // Fire-and-forget admin email notifications. Wrapped in try/catch so
         // a mailgun outage cannot break the public webmention endpoint.
@@ -264,7 +265,8 @@ public sealed partial class MentionService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to fetch source page {Source} for webmention verification", sourceUri);
+            logger.LogWarning(ex, "Failed to fetch source page {Source} for webmention verification",
+                LogSanitizer.SanitizeForLog(sourceUri.ToString()));
             return (false, null, null, null, null, null, null);
         }
     }

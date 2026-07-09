@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using HowToSoftware.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -59,7 +60,7 @@ public class EmailWebhookController(
 
         if (eventType is not ("failed" or "complained" or "delivered" or "opened" or "clicked"))
         {
-            logger.LogDebug("Ignoring Mailgun event type: {EventType}", eventType);
+            logger.LogDebug("Ignoring Mailgun event type: {EventType}", LogSanitizer.SanitizeForLog(eventType));
         }
 
         return Ok();
@@ -92,8 +93,8 @@ public class EmailWebhookController(
             // Never let webhook persistence failures bubble back to Mailgun —
             // they would trigger retries and could poison the queue.
             logger.LogWarning(ex,
-                "Failed to record automated-email delivery event {EventType} for {Email}",
-                eventType, recipient);
+                "Failed to record automated-email delivery event {EventType} for {EmailHash}",
+                LogSanitizer.SanitizeForLog(eventType), LogSanitizer.MaskEmail(recipient));
         }
     }
 

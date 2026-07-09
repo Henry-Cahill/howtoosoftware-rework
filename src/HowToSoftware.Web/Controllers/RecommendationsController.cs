@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 
 namespace HowToSoftware.Web.Controllers;
 
@@ -56,7 +57,7 @@ public class RecommendationsController(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to record recommendation click for {RecommendationId}", id);
+            logger.LogError(ex, "Failed to record recommendation click for {RecommendationId}", LogSanitizer.SanitizeForLog(id));
             return StatusCode(500, new { error = "Failed to record click" });
         }
     }
@@ -81,7 +82,7 @@ public class RecommendationsController(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to record recommendation subscribe for {RecommendationId}", id);
+            logger.LogError(ex, "Failed to record recommendation subscribe for {RecommendationId}", LogSanitizer.SanitizeForLog(id));
             return StatusCode(500, new { error = "Failed to record subscribe" });
         }
     }

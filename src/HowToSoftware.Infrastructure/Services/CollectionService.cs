@@ -102,7 +102,7 @@ public sealed class CollectionService(
         collection.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation("Updated collection {CollectionId}", id);
+        logger.LogInformation("Updated collection {CollectionId}", LogSanitizer.SanitizeForLog(id));
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
@@ -113,7 +113,7 @@ public sealed class CollectionService(
         db.Collections.Remove(collection);
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation("Deleted collection {CollectionId}", id);
+        logger.LogInformation("Deleted collection {CollectionId}", LogSanitizer.SanitizeForLog(id));
     }
 
     // ================================================================

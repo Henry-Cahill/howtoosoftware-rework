@@ -76,7 +76,8 @@ public sealed class DonationService : IDonationService
 
         _logger.LogInformation(
             "Created donation checkout session {SessionId} for {Email} — {Amount} {Currency}",
-            session.Id, request.Email, request.AmountInCents, request.Currency);
+            session.Id, LogSanitizer.SanitizeForLog(request.Email), request.AmountInCents,
+            LogSanitizer.SanitizeForLog(request.Currency));
 
         return session.Url;
     }
@@ -114,8 +115,8 @@ public sealed class DonationService : IDonationService
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "Recorded donation {DonationId}: {Amount} {Currency} from {Email}",
-            donation.Id, donation.Amount, donation.Currency, donation.Email);
+            "Recorded donation {DonationId}: {Amount} {Currency} from {EmailHash}",
+            donation.Id, donation.Amount, donation.Currency, LogSanitizer.MaskEmail(donation.Email));
     }
 
     public async Task<List<DonationPaymentEvent>> GetDonationsAsync(CancellationToken ct = default)

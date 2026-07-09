@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
+using HowToSoftware.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace HowToSoftware.Core.Services;
@@ -12,7 +13,7 @@ public class SuppressionService(
 {
     public async Task HandleBounceAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing bounce for {Email}", emailAddress);
+        logger.LogInformation("Processing bounce for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
 
         await SuppressEmailAsync(emailAddress, emailId, "bounce", ct);
         await DisableMemberEmailAsync(emailAddress, ct);
@@ -20,7 +21,7 @@ public class SuppressionService(
 
     public async Task HandleSpamComplaintAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing spam complaint for {Email}", emailAddress);
+        logger.LogInformation("Processing spam complaint for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
 
         await SuppressEmailAsync(emailAddress, emailId, "spam", ct);
         await RecordSpamComplaintAsync(emailAddress, emailId, ct);
@@ -29,7 +30,7 @@ public class SuppressionService(
 
     public async Task RemoveSuppressionAsync(string emailAddress, CancellationToken ct = default)
     {
-        logger.LogInformation("Removing suppression for {Email}", emailAddress);
+        logger.LogInformation("Removing suppression for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
 
         await emailRepository.RemoveSuppressionAsync(emailAddress, ct);
 
@@ -46,7 +47,7 @@ public class SuppressionService(
     {
         if (await emailRepository.IsEmailSuppressedAsync(emailAddress, ct))
         {
-            logger.LogDebug("Email {Email} is already suppressed, skipping", emailAddress);
+            logger.LogDebug("Email {EmailHash} is already suppressed, skipping", LogSanitizer.MaskEmail(emailAddress));
             return;
         }
 
@@ -67,7 +68,7 @@ public class SuppressionService(
         var member = await memberRepository.GetByEmailAsync(emailAddress, ct);
         if (member is null)
         {
-            logger.LogWarning("No member found for suppressed email {Email}", emailAddress);
+            logger.LogWarning("No member found for suppressed email {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
             return;
         }
 
@@ -78,7 +79,7 @@ public class SuppressionService(
         member.UpdatedAt = DateTime.UtcNow;
         await memberRepository.UpdateAsync(member, ct);
 
-        logger.LogInformation("Disabled email for member {MemberId} ({Email})", member.Id, emailAddress);
+        logger.LogInformation("Disabled email for member {MemberId}", member.Id);
     }
 
     private async Task RecordSpamComplaintAsync(string emailAddress, string? emailId, CancellationToken ct)
