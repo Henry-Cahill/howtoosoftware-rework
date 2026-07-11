@@ -93,8 +93,8 @@ public class EmailWebhookController(
             // Never let webhook persistence failures bubble back to Mailgun —
             // they would trigger retries and could poison the queue.
             logger.LogWarning(ex,
-                "Failed to record automated-email delivery event {EventType} for {EmailHash}",
-                LogSanitizer.SanitizeForLog(eventType), LogSanitizer.MaskEmail(recipient));
+                "Failed to record automated-email delivery event {EventType}",
+                LogSanitizer.SanitizeForLog(eventType));
         }
     }
 
