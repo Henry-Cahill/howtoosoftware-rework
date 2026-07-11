@@ -115,8 +115,8 @@ public sealed class DonationService : IDonationService
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "Recorded donation {DonationId}: {Amount} {Currency} from {EmailHash}",
-            donation.Id, donation.Amount, donation.Currency, LogSanitizer.MaskEmail(donation.Email));
+            "Recorded donation {DonationId}: {Amount} {Currency}",
+            donation.Id, donation.Amount, donation.Currency);
     }
 
     public async Task<List<DonationPaymentEvent>> GetDonationsAsync(CancellationToken ct = default)
