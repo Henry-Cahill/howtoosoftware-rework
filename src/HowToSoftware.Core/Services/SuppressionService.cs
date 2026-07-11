@@ -47,7 +47,7 @@ public class SuppressionService(
     {
         if (await emailRepository.IsEmailSuppressedAsync(emailAddress, ct))
         {
-            logger.LogDebug("Email {EmailHash} is already suppressed, skipping", LogSanitizer.MaskEmail(emailAddress));
+            logger.LogDebug("Email is already suppressed, skipping");
             return;
         }
 
