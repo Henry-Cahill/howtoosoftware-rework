@@ -1,0 +1,10 @@
+name: howtoosoftware/csharp-models
+version: 1.0.0
+library: true
+# Attach these data extensions to the standard C# analysis pack so every
+# CodeQL C# query (including cs/exposure-of-sensitive-information and
+# cs/log-forging) sees our LogSanitizer summaries.
+extensionTargets:
+  codeql/csharp-all: "*"
+dataExtensions:
+  - "**/*.model.yml"

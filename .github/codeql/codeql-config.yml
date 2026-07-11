@@ -1,5 +1,15 @@
 name: "HowToSoftware CodeQL config"
 
+# Load our local C# data-extension pack so CodeQL treats
+# HowToSoftware.Core.Utilities.LogSanitizer.{MaskEmail,SanitizeForLog} as
+# non-taint-propagating. Without this, SHA-256 hashing inside MaskEmail is
+# summarised as taint-preserving by default and every log call that wraps an
+# email in MaskEmail still fires cs/exposure-of-sensitive-information.
+# See .github/codeql/models/log-sanitizer.model.yml for the models.
+packs:
+  csharp:
+    - "./.github/codeql/models"
+
 # Exclude vendored, third-party client-side libraries from CodeQL analysis.
 #
 # Everything under wwwroot/lib is shipped as-is (installed via LibMan) and is

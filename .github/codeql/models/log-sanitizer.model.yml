@@ -1,0 +1,28 @@
+# CodeQL C# data-extension model for HowToSoftware.Core.Utilities.LogSanitizer.
+#
+# CodeQL's default flow model for System.Security.Cryptography.SHA256.HashData
+# and the surrounding UTF-8 encode / hex-encode plumbing is taint-propagating.
+# That means our LogSanitizer.MaskEmail(email) call — which returns a
+# 6-byte SHA-256 prefix, not the input — is still seen as carrying the raw
+# email address into every logger.Log*(...) call site, tripping
+# cs/exposure-of-sensitive-information (CWE-359).
+#
+# Similarly, LogSanitizer.SanitizeForLog now funnels every non-null return
+# through string.Replace("\r","").Replace("\n","") — a shape CodeQL's
+# cs/log-forging query recognises as a sanitizer — but declaring it neutral
+# as well guards against CodeQL auto-generating a taint summary that would
+# reintroduce log-forging alerts.
+#
+# `neutralModel` with kind "summary" tells CodeQL: this method has been
+# reviewed and has no summary (input→output) flow. It suppresses the
+# auto-generated summary that would otherwise carry taint through the wrapper.
+#
+# Row schema for neutralModel (see docs/codeql/reusables/mad-neutral-model):
+#   [namespace, type, name, signature, kind, provenance]
+extensions:
+  - addsTo:
+      pack: codeql/csharp-all
+      extensible: neutralModel
+    data:
+      - ["HowToSoftware.Core.Utilities", "LogSanitizer", "MaskEmail", "(System.String)", "summary", "manual"]
+      - ["HowToSoftware.Core.Utilities", "LogSanitizer", "SanitizeForLog", "(System.String)", "summary", "manual"]
