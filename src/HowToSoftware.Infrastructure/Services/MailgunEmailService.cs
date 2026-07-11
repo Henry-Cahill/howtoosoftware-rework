@@ -64,8 +64,8 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
             await smtp.SendAsync(mime, ct);
             await smtp.DisconnectAsync(quit: true, ct);
 
-            _logger.LogInformation("Email sent to {To} subject=\"{Subject}\"",
-                LogSanitizer.MaskEmail(message.To), LogSanitizer.SanitizeForLog(message.Subject));
+            _logger.LogInformation("Email sent subject=\"{Subject}\"",
+                LogSanitizer.SanitizeForLog(message.Subject));
 
             return new EmailSendResult
             {
@@ -75,7 +75,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {To}", LogSanitizer.MaskEmail(message.To));
+            _logger.LogError(ex, "Failed to send email");
 
             return new EmailSendResult
             {
