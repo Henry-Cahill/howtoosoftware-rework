@@ -75,7 +75,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {To}", LogSanitizer.MaskEmail(message.To));
+            _logger.LogError(ex, "Failed to send email.");
 
             return new EmailSendResult
             {
