@@ -22,13 +22,24 @@ public static class LogSanitizer
     /// <summary>
     /// Removes carriage-return and line-feed characters from
     /// <paramref name="value"/> so attacker-controlled text cannot inject
-    /// additional log lines. Returns the input unchanged when it is
-    /// <see langword="null"/> or empty.
+    /// additional log lines. Returns <see langword="null"/> when the input is
+    /// <see langword="null"/>.
     /// </summary>
+    /// <remarks>
+    /// The control flow is deliberately shaped so every non-null return value
+    /// flows through <see cref="string.Replace(string, string)"/> calls that
+    /// strip <c>\r</c> and <c>\n</c>. CodeQL's <c>cs/log-forging</c> query
+    /// recognises those <see cref="string.Replace(string, string)"/> calls as
+    /// sanitizers, which lets the analysis clear taint interprocedurally
+    /// through this wrapper. Do not add a code path that returns
+    /// <paramref name="value"/> unchanged — that would reintroduce a
+    /// taint-preserving path and cause the alert to fire again at every call
+    /// site.
+    /// </remarks>
     public static string? SanitizeForLog(string? value)
     {
-        if (string.IsNullOrEmpty(value))
-            return value;
+        if (value is null)
+            return null;
 
         return value
             .Replace("\r", string.Empty)
