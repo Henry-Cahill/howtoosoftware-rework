@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
-using HowToSoftware.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace HowToSoftware.Core.Services;
@@ -13,7 +12,7 @@ public class SuppressionService(
 {
     public async Task HandleBounceAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing bounce");
+        logger.LogInformation("Processing bounce event");
 
         await SuppressEmailAsync(emailAddress, emailId, "bounce", ct);
         await DisableMemberEmailAsync(emailAddress, ct);
@@ -21,7 +20,7 @@ public class SuppressionService(
 
     public async Task HandleSpamComplaintAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing spam complaint");
+        logger.LogInformation("Processing spam complaint event");
 
         await SuppressEmailAsync(emailAddress, emailId, "spam", ct);
         await RecordSpamComplaintAsync(emailAddress, emailId, ct);
