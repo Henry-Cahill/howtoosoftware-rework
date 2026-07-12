@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
-using HowToSoftware.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace HowToSoftware.Core.Services;
