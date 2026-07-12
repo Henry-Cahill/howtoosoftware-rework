@@ -274,9 +274,9 @@ public class SuppressionServiceTests
     }
 }
 
-// ── Log-sanitisation: no PII leaks into log output ───────────
+// ── Log-sanitization: no PII leaks into log output ───────────
 
-public class SuppressionServiceLogSanitisationTests
+public class SuppressionServiceLogSanitizationTests
 {
     private const string TestEmail = "user@example.com";
 
