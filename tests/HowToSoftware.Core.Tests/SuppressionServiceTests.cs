@@ -1,6 +1,7 @@
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
 using HowToSoftware.Core.Services;
+using HowToSoftware.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -158,6 +159,39 @@ public class SuppressionServiceTests
         Assert.Single(_emailRepo.Suppressions);
     }
 
+    [Fact]
+    public async Task PublicHandlers_DoNotLogRawOrMaskedEmailInState()
+    {
+        const string memberEmail = "user@example.com";
+        const string missingEmail = "missing@example.com";
+
+        AddMember(memberEmail);
+        var logger = new RecordingLogger<SuppressionService>();
+        var sut = new SuppressionService(_emailRepo, _memberRepo, logger);
+
+        await sut.HandleBounceAsync(memberEmail, "email-100");
+        await sut.HandleBounceAsync(memberEmail, "email-101"); // duplicate suppression path
+        await sut.HandleSpamComplaintAsync(missingEmail, "email-102"); // missing member path
+        await sut.RemoveSuppressionAsync(missingEmail); // missing member path
+
+        Assert.Contains(logger.Entries, e => e.Message.Contains("already suppressed", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, e => e.Message.Contains("No member found for suppressed email", StringComparison.Ordinal));
+
+        AssertNoEmailLeak(memberEmail, logger.Entries);
+        AssertNoEmailLeak(missingEmail, logger.Entries);
+
+        static void AssertNoEmailLeak(string email, IReadOnlyCollection<RecordingLogger<SuppressionService>.Entry> entries)
+        {
+            var masked = LogSanitizer.MaskEmail(email);
+            var stateFragments = entries
+                .SelectMany(e => new[] { e.StateText }.Concat(e.StateValues))
+                .Where(value => !string.IsNullOrEmpty(value));
+
+            Assert.DoesNotContain(stateFragments, value => value.Contains(email, StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(stateFragments, value => value.Contains(masked, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────
 
     private Member AddMember(string email)
@@ -271,6 +305,39 @@ public class SuppressionServiceTests
     {
         public Task CommitAsync(CancellationToken ct = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<Entry> Entries { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NoOpScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var stateValues = state is IEnumerable<KeyValuePair<string, object?>> values
+                ? values.Select(kvp => $"{kvp.Key}={kvp.Value}").ToArray()
+                : [];
+
+            Entries.Add(new Entry(
+                formatter(state, exception),
+                state?.ToString() ?? string.Empty,
+                stateValues));
+        }
+
+        public sealed record Entry(string Message, string StateText, IReadOnlyList<string> StateValues);
+
+        private sealed class NoOpScope : IDisposable
+        {
+            public static readonly NoOpScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }
 
