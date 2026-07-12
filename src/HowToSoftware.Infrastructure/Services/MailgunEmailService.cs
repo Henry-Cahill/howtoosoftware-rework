@@ -64,8 +64,8 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
             await smtp.SendAsync(mime, ct);
             await smtp.DisconnectAsync(quit: true, ct);
 
-            _logger.LogInformation("Email sent to {To} subject=\"{Subject}\"",
-                LogSanitizer.MaskEmail(message.To), LogSanitizer.SanitizeForLog(message.Subject));
+            _logger.LogInformation("Email sent subject=\"{Subject}\"",
+                LogSanitizer.SanitizeForLog(message.Subject));
 
             return new EmailSendResult
             {
@@ -75,7 +75,7 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email.");
+            _logger.LogError(ex, "Failed to send email");
 
             return new EmailSendResult
             {
@@ -199,8 +199,8 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
                     catch (SmtpCommandException ex) when (IsTransientError(ex) && attempt < _settings.MaxRetries)
                     {
                         attempt++;
-                        _logger.LogWarning(ex, "Transient SMTP error for {Email}, retry {Attempt}/{Max}",
-                            LogSanitizer.MaskEmail(email), attempt, _settings.MaxRetries);
+                        _logger.LogWarning(ex, "Transient SMTP error, retry {Attempt}/{Max}",
+                            attempt, _settings.MaxRetries);
 
                         // Reconnect on transient errors
                         smtp.Dispose();
@@ -208,8 +208,8 @@ public sealed class MailgunEmailService : IEmailService, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to send to {Email} after {Attempts} attempts",
-                            LogSanitizer.MaskEmail(email), attempt + 1);
+                        _logger.LogError(ex, "Failed to send email after {Attempts} attempts",
+                            attempt + 1);
 
                         result = new EmailSendResult
                         {
