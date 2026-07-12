@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using HowToSoftware.Core.Entities;
 using HowToSoftware.Core.Interfaces;
-using HowToSoftware.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace HowToSoftware.Core.Services;
@@ -47,7 +46,7 @@ public class SuppressionService(
     {
         if (await emailRepository.IsEmailSuppressedAsync(emailAddress, ct))
         {
-            logger.LogDebug("Email {EmailHash} is already suppressed, skipping", LogSanitizer.MaskEmail(emailAddress));
+            logger.LogDebug("Email is already suppressed, skipping");
             return;
         }
 
