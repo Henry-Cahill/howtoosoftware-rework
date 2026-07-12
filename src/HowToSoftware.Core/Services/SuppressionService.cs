@@ -30,7 +30,7 @@ public class SuppressionService(
 
     public async Task RemoveSuppressionAsync(string emailAddress, CancellationToken ct = default)
     {
-        logger.LogInformation("Removing suppression for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
+        logger.LogInformation("Removing suppression for email address");
 
         await emailRepository.RemoveSuppressionAsync(emailAddress, ct);
 
