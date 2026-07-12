@@ -13,7 +13,7 @@ public class SuppressionService(
 {
     public async Task HandleBounceAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing bounce for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
+        logger.LogInformation("Processing bounce event");
 
         await SuppressEmailAsync(emailAddress, emailId, "bounce", ct);
         await DisableMemberEmailAsync(emailAddress, ct);
@@ -21,7 +21,7 @@ public class SuppressionService(
 
     public async Task HandleSpamComplaintAsync(string emailAddress, string? emailId, CancellationToken ct = default)
     {
-        logger.LogInformation("Processing spam complaint for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
+        logger.LogInformation("Processing spam complaint event");
 
         await SuppressEmailAsync(emailAddress, emailId, "spam", ct);
         await RecordSpamComplaintAsync(emailAddress, emailId, ct);
@@ -30,7 +30,7 @@ public class SuppressionService(
 
     public async Task RemoveSuppressionAsync(string emailAddress, CancellationToken ct = default)
     {
-        logger.LogInformation("Removing suppression for {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
+        logger.LogInformation("Removing suppression");
 
         await emailRepository.RemoveSuppressionAsync(emailAddress, ct);
 
