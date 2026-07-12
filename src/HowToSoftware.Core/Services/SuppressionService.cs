@@ -68,7 +68,7 @@ public class SuppressionService(
         var member = await memberRepository.GetByEmailAsync(emailAddress, ct);
         if (member is null)
         {
-            logger.LogWarning("No member found for suppressed email {EmailHash}", LogSanitizer.MaskEmail(emailAddress));
+            logger.LogWarning("No member found for suppressed email");
             return;
         }
 
